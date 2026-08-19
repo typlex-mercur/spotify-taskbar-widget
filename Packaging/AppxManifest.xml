@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifesto MSIX para a Microsoft Store.
+  Os 3 PLACEHOLDERS vêm do Partner Center depois de reservar o nome da app:
+  Painel → Product identity: Identity/Name, Identity/Publisher, PublisherDisplayName.
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap uap5 rescap">
+
+  <!-- Identidade oficial do Partner Center (Store ID: 9P12TLJZG2CJ) -->
+  <Identity Name="MechanicWB.TaskbarWidgetforSpotify"
+            Publisher="CN=4C013262-AF61-4EA1-BDBB-78F7F8DE42C7"
+            Version="1.2.9.0"
+            ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Taskbar Widget for Spotify</DisplayName>
+    <PublisherDisplayName>MechanicWB</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+    <Resource Language="pt-pt" />
+  </Resources>
+
+  <Applications>
+    <Application Id="SpotifyTaskbarWidget" Executable="SpotifyTaskbarWidget.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Taskbar Widget for Spotify"
+                          Description="Now-playing widget for Spotify embedded in the Windows 11 taskbar."
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <uap5:Extension Category="windows.startupTask" Executable="SpotifyTaskbarWidget.exe"
+                        EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="SpotifyTaskbarWidgetStartup" Enabled="false"
+                            DisplayName="Taskbar Widget for Spotify" />
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
