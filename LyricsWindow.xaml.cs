@@ -38,9 +38,11 @@ public partial class LyricsWindow : Window
         ApplySettings();
     }
 
+    private TextAlignment _textAlign = TextAlignment.Center;
+
     public void ApplySettings()
     {
-        var tAlign = _settings.LyricsAlignment?.ToLowerInvariant() switch
+        _textAlign = _settings.LyricsAlignment?.ToLowerInvariant() switch
         {
             "left" => TextAlignment.Left,
             "right" => TextAlignment.Right,
@@ -49,8 +51,8 @@ public partial class LyricsWindow : Window
 
         LyricText.HorizontalAlignment = HorizontalAlignment.Stretch;
         LyricTextTop.HorizontalAlignment = HorizontalAlignment.Stretch;
-        LyricText.TextAlignment = tAlign;
-        LyricTextTop.TextAlignment = tAlign;
+        LyricText.TextAlignment = _textAlign;
+        LyricTextTop.TextAlignment = _textAlign;
 
         double baseFontSize = _settings.LyricsFontSize > 0 ? _settings.LyricsFontSize : 11.5;
         ApplyFontSize(baseFontSize);
@@ -147,6 +149,11 @@ public partial class LyricsWindow : Window
 
         var nextTb = _activeLayer == 0 ? LyricTextTop : LyricText;
         var nextTr = _activeLayer == 0 ? LyricTransformTop : LyricTransform;
+
+        // Re-apply alignment on every transition — WPF animation system can
+        // lose the local value after layout invalidation or wrap changes
+        nextTb.TextAlignment = _textAlign;
+        currentTb.TextAlignment = _textAlign;
 
         if (string.IsNullOrEmpty(text))
         {
