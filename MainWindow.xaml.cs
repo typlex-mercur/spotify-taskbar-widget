@@ -1727,6 +1727,8 @@ public partial class MainWindow : Window
         }
     }
 
+    private DateTime _lastLyricsFetchAttempt = DateTime.MinValue;
+
     private async Task LoadLyricsForTrackAsync(string title, string artist, TimeSpan duration)
     {
         string key = $"{artist} - {title}".Trim();
@@ -1739,7 +1741,10 @@ public partial class MainWindow : Window
         }
 
         if (_lastLyricsTrackKey == key && _currentLyrics != null) return;
+        if (_lastLyricsTrackKey == key && (DateTime.UtcNow - _lastLyricsFetchAttempt).TotalSeconds < 5) return;
+
         _lastLyricsTrackKey = key;
+        _lastLyricsFetchAttempt = DateTime.UtcNow;
 
         try
         {

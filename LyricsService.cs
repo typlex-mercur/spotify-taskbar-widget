@@ -51,17 +51,29 @@ public class SongLyrics
 
 public sealed class LyricsService
 {
-    private static readonly HttpClient Http = new()
-    {
-        Timeout = TimeSpan.FromSeconds(6)
-    };
+    private static readonly HttpClient Http;
 
     static LyricsService()
     {
-        Http.DefaultRequestHeaders.UserAgent.ParseAdd("SpotifyTaskbarWidget/1.3.0 (https://github.com/mechanicwb2-hub/spotify-taskbar-widget)");
+        var handler = new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(30),
+            ConnectTimeout = TimeSpan.FromSeconds(5),
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13
+            }
+        };
+
+        Http = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(8)
+        };
+        Http.DefaultRequestHeaders.UserAgent.ParseAdd("SpotifyTaskbarWidget/1.3.0");
     }
 
-    private static readonly Dictionary<string, SongLyrics?> Cache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, SongLyrics> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object CacheLock = new();
 
     private static readonly Regex LrcRegex = new(@"^\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)$", RegexOptions.Compiled);
@@ -86,6 +98,28 @@ public sealed class LyricsService
         public string? SyncedLyrics { get; set; }
     }
 
+    private static async Task<HttpResponseMessage?> HttpGetWithRetryAsync(string url, int maxRetries = 2)
+    {
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var resp = await Http.GetAsync(url);
+                return resp;
+            }
+            catch (Exception ex)
+            {
+                if (attempt == maxRetries)
+                {
+                    Diag.Log($"[LyricsService] HTTP GET failed for '{url}': {ex.Message}");
+                    return null;
+                }
+                await Task.Delay(250);
+            }
+        }
+        return null;
+    }
+
     public static async Task<SongLyrics?> GetLyricsAsync(string title, string artist, TimeSpan duration)
     {
         if (string.IsNullOrWhiteSpace(title)) return null;
@@ -97,7 +131,7 @@ public sealed class LyricsService
 
         lock (CacheLock)
         {
-            if (Cache.TryGetValue(cacheKey, out var cached))
+            if (Cache.TryGetValue(cacheKey, out var cached) && cached != null)
                 return cached;
         }
 
@@ -113,8 +147,8 @@ public sealed class LyricsService
                 url += $"&duration={(int)Math.Round(duration.TotalSeconds)}";
             }
 
-            var resp = await Http.GetAsync(url);
-            if (resp.IsSuccessStatusCode)
+            var resp = await HttpGetWithRetryAsync(url);
+            if (resp != null && resp.IsSuccessStatusCode)
             {
                 var data = await resp.Content.ReadFromJsonAsync<LrclibResponse>();
                 if (data != null)
@@ -141,8 +175,8 @@ public sealed class LyricsService
                 {
                     fallbackUrl += $"&duration={(int)Math.Round(duration.TotalSeconds)}";
                 }
-                var fallbackResp = await Http.GetAsync(fallbackUrl);
-                if (fallbackResp.IsSuccessStatusCode)
+                var fallbackResp = await HttpGetWithRetryAsync(fallbackUrl);
+                if (fallbackResp != null && fallbackResp.IsSuccessStatusCode)
                 {
                     var data = await fallbackResp.Content.ReadFromJsonAsync<LrclibResponse>();
                     if (data != null)
@@ -173,8 +207,8 @@ public sealed class LyricsService
                 foreach (var q in searchQueries)
                 {
                     string searchUrl = $"https://lrclib.net/api/search?q={Uri.EscapeDataString(q)}";
-                    var searchResp = await Http.GetAsync(searchUrl);
-                    if (searchResp.IsSuccessStatusCode)
+                    var searchResp = await HttpGetWithRetryAsync(searchUrl);
+                    if (searchResp != null && searchResp.IsSuccessStatusCode)
                     {
                         var list = await searchResp.Content.ReadFromJsonAsync<List<LrclibResponse>>();
                         if (list != null && list.Count > 0)
@@ -215,9 +249,12 @@ public sealed class LyricsService
             Diag.Log($"Lyrics fetch failed for '{artist} - {title}': {ex.Message}");
         }
 
-        lock (CacheLock)
+        if (result != null)
         {
-            Cache[cacheKey] = result;
+            lock (CacheLock)
+            {
+                Cache[cacheKey] = result;
+            }
         }
 
         return result;
