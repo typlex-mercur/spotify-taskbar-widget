@@ -38,7 +38,7 @@ public class WidgetSettings
 
     /// <summary>Barras de tarefas com widget (0 = principal, 1+ = secundárias).
     /// Uma janela por entrada; lista vazia = ficheiro antigo, migra de MonitorIndex.</summary>
-    public List<int> Monitors { get; set; } = new();
+    public List<int> Monitors { get; set; } = new() { 0 };
 
     /// <summary>Com o Spotify fechado: true mostra um botão "Abrir Spotify"; false esconde o widget.</summary>
     public bool ShowLauncher { get; set; } = true;
@@ -48,7 +48,7 @@ public class WidgetSettings
 
     /// <summary>Títulos longos: true = deslizam UMA vez no início da faixa e ficam
     /// quietos; false (padrão) = deslize contínuo. Pedido da comunidade (#14).</summary>
-    public bool ScrollTitleOnce { get; set; } = true;
+    public bool ScrollTitleOnce { get; set; } = false;
 
     /// <summary>Mostrar letras sincronizadas (lyrics) na barra de tarefas.</summary>
     public bool ShowLyrics { get; set; } = true;
@@ -71,7 +71,7 @@ public class WidgetSettings
     public bool ShowLike { get; set; } = true;
     public bool ShowShuffle { get; set; } = true;
     public bool ShowRepeat { get; set; } = true;
-    public bool ShowVolume { get; set; } = true;
+    public bool ShowVolume { get; set; } = false;
 
     private static readonly object SaveLock = new();
 

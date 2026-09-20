@@ -299,7 +299,7 @@
                 <!-- Título e artista (cores do Spotify: branco / #B3B3B3) -->
                 <Grid x:Name="TextStack" VerticalAlignment="Center" Margin="9,0,6,0" Width="150">
                     <!-- Modo Padrão: Título + Artista -->
-                    <StackPanel x:Name="StandardTextPanel" VerticalAlignment="Center">
+                    <StackPanel x:Name="StandardTextPanel" Visibility="Collapsed" VerticalAlignment="Center">
                         <StackPanel.RenderTransform>
                             <TranslateTransform x:Name="StandardTextShift" X="0" Y="0"/>
                         </StackPanel.RenderTransform>
@@ -321,7 +321,7 @@
                     </StackPanel>
 
                     <!-- Modo Combinado (Unified): Linha 1 = Título • Artista; Linha 2 = Lời bài hát cuộn đồng bộ -->
-                    <StackPanel x:Name="UnifiedTextPanel" Visibility="Collapsed" VerticalAlignment="Center">
+                    <StackPanel x:Name="UnifiedTextPanel" Visibility="Visible" VerticalAlignment="Center">
                         <StackPanel.RenderTransform>
                             <TranslateTransform x:Name="UnifiedTextShift" X="0" Y="0"/>
                         </StackPanel.RenderTransform>
@@ -424,6 +424,7 @@
 
                 <!-- Volume: altifalante do Spotify -->
                 <Button x:Name="VolumeButton" Style="{StaticResource IconButton}"
+                        Visibility="Collapsed"
                         Margin="2,0,0,0" VerticalAlignment="Center" Click="Volume_Click"
                         MouseWheel="Volume_MouseWheel" ToolTip="Volume do Spotify">
                     <Path x:Name="VolumeIcon" Width="14" Height="14" Stretch="Uniform" Fill="#B3B3B3"
