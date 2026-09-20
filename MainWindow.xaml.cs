@@ -2175,7 +2175,7 @@ public partial class MainWindow : Window
         UnifiedInfoShift.X = 0;
 
         double overflow = textWidth - clipWidth;
-        if (overflow > 4)
+        if (overflow > 1.0)
         {
             double scrollSeconds = Math.Max(1.5, overflow / 25.0);
             double end = -(overflow + 10);
@@ -2204,28 +2204,30 @@ public partial class MainWindow : Window
 
     private static double CalculateLyricScrollTarget(double overflow, double progress, bool hasMatch, bool isPlaying)
     {
-        if (overflow <= 4 || !hasMatch || !isPlaying)
+        if (overflow <= 1.0 || !hasMatch || !isPlaying)
             return 0;
 
+        double maxScroll = overflow + 6;
         if (progress <= 0.12)
             return 0;
 
         if (progress >= 0.88)
-            return -overflow;
+            return -maxScroll;
 
         double ratio = (progress - 0.12) / 0.76;
-        return -overflow * ratio;
+        return -maxScroll * ratio;
     }
 
     private static void StartContinuousLyricScroll(TranslateTransform transform, double overflow, double progress, TimeSpan lineDuration)
     {
-        if (overflow <= 4 || lineDuration <= TimeSpan.Zero)
+        if (overflow <= 1.0 || lineDuration <= TimeSpan.Zero)
         {
             transform.BeginAnimation(TranslateTransform.XProperty, null);
             transform.X = 0;
             return;
         }
 
+        double maxScroll = overflow + 6;
         if (progress >= 0.88)
             return;
 
@@ -2238,14 +2240,14 @@ public partial class MainWindow : Window
             double scrollSec = 0.76 * totalSec;
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(delaySec))));
-            anim.KeyFrames.Add(new LinearDoubleKeyFrame(-overflow, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(delaySec + scrollSec))));
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(-maxScroll, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(delaySec + scrollSec))));
         }
         else
         {
-            double startX = -overflow * ((progress - 0.12) / 0.76);
+            double startX = -maxScroll * ((progress - 0.12) / 0.76);
             double remainingSec = (0.88 - progress) * totalSec;
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(startX, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-            anim.KeyFrames.Add(new LinearDoubleKeyFrame(-overflow, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(Math.Max(0.05, remainingSec)))));
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(-maxScroll, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(Math.Max(0.05, remainingSec)))));
         }
 
         transform.BeginAnimation(TranslateTransform.XProperty, anim);
@@ -2300,7 +2302,7 @@ public partial class MainWindow : Window
             _lastLyricOverflow = Math.Max(0, textWidth - clipWidth);
 
             // Bắt đầu scroll animation mượt mà 120 FPS
-            if (_isPlayingUi && _lastLyricOverflow > 4)
+            if (_isPlayingUi && _lastLyricOverflow > 1.0)
             {
                 StartContinuousLyricScroll(nextTr, _lastLyricOverflow, progress, lineDuration);
                 _isLyricScrollingActive = true;
@@ -2353,7 +2355,7 @@ public partial class MainWindow : Window
         var activeTb = _unifiedActiveLayer == 0 ? UnifiedLyricText : UnifiedLyricTextTop;
         var activeTr = _unifiedActiveLayer == 0 ? UnifiedLyricShift : UnifiedLyricShiftTop;
 
-        if (string.IsNullOrEmpty(text) || text == "♪" || !hasMatch || _lastLyricOverflow <= 4)
+        if (string.IsNullOrEmpty(text) || text == "♪" || !hasMatch || _lastLyricOverflow <= 1.0)
         {
             _isLyricScrollingActive = false;
             if (activeTr.X != 0)
