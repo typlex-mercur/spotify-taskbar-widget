@@ -161,7 +161,7 @@ public partial class MainWindow : Window
     private IntPtr _anchorsTray;
     private bool _lastKnownLeftAligned;
 
-    private const double MaxTextWidth = 150;
+    private double MaxTextWidth => (_settings.ShowLyrics && _settings.UnifiedLyrics) ? 260 : 150;
     private const double MinTextWidth = 60;
 
     public MainWindow()
@@ -204,6 +204,8 @@ public partial class MainWindow : Window
         ScrollOnceMenu.Header = L.ScrollTitleOnce;
         LyricsMenuItem.Header = L.LyricsMenu;
         ShowLyricsMenu.Header = L.ShowLyrics;
+        LyricsUnifiedMenu.Header = L.LyricsModeUnified;
+        LyricsSeparateMenu.Header = L.LyricsModeSeparate;
         LyricsAlignMenu.Header = L.LyricsAlign;
         LyricsAlignLeftMenu.Header = L.LyricsAlignLeft;
         LyricsAlignCenterMenu.Header = L.LyricsAlignCenter;
@@ -355,6 +357,8 @@ public partial class MainWindow : Window
         ProgressMenu.IsChecked = _settings.ShowProgress;
         ScrollOnceMenu.IsChecked = _settings.ScrollTitleOnce;
         ShowLyricsMenu.IsChecked = _settings.ShowLyrics;
+        LyricsUnifiedMenu.IsChecked = _settings.UnifiedLyrics;
+        LyricsSeparateMenu.IsChecked = !_settings.UnifiedLyrics;
         LyricsAlignLeftMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Left", StringComparison.OrdinalIgnoreCase);
         LyricsAlignCenterMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Center", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(_settings.LyricsAlignment);
         LyricsAlignRightMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Right", StringComparison.OrdinalIgnoreCase);
@@ -732,7 +736,7 @@ public partial class MainWindow : Window
         ReassertTopmost();
 
         // Posicionamento do widget de letras (Lyrics) no espaço livre à direita da barra
-        if (!_settings.ShowLyrics || !_spotifyPresent || hide)
+        if (!_settings.ShowLyrics || !_spotifyPresent || hide || _settings.UnifiedLyrics)
         {
             _lyricsWindow?.Hide();
         }
@@ -1718,6 +1722,24 @@ public partial class MainWindow : Window
         UpdateLyricsUi();
     }
 
+    private void LyricsUnified_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.UnifiedLyrics = true;
+        _settings.Save();
+        ApplySettingsUi();
+        UpdatePosition();
+        UpdateLyricsUi();
+    }
+
+    private void LyricsSeparate_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.UnifiedLyrics = false;
+        _settings.Save();
+        ApplySettingsUi();
+        UpdatePosition();
+        UpdateLyricsUi();
+    }
+
     private void LyricsAlign_Click(object sender, RoutedEventArgs e)
     {
         if (sender is MenuItem item && item.Tag is string align)
@@ -1780,42 +1802,206 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (!_settings.ShowLyrics || !_spotifyPresent)
+            bool showLyrics = _settings.ShowLyrics && _spotifyPresent;
+
+            if (!showLyrics)
             {
                 _lyricsWindow?.SetLyric("");
+                if (StandardTextPanel.Visibility != Visibility.Visible)
+                {
+                    StandardTextPanel.Visibility = Visibility.Visible;
+                    UnifiedTextPanel.Visibility = Visibility.Collapsed;
+                    UpdateMarquee();
+                }
                 return;
             }
 
-            if (_currentLyrics == null)
+            if (_settings.UnifiedLyrics)
             {
-                // While lyrics are fetching from network or if track has no lyrics yet
-                _lyricsWindow?.SetLyric(_isPlayingUi ? "♪" : "");
-                return;
-            }
+                // Modo Combinado (1 Janela)
+                _lyricsWindow?.Hide();
 
-            if (_currentLyrics.IsInstrumental || _currentLyrics.Lines.Count == 0)
+                if (StandardTextPanel.Visibility != Visibility.Collapsed)
+                {
+                    StandardTextPanel.Visibility = Visibility.Collapsed;
+                    UnifiedTextPanel.Visibility = Visibility.Visible;
+                }
+
+                // Linha 1: Título • Artista
+                string t = TitleText.Text ?? "";
+                string a = ArtistText.Text ?? "";
+                string infoStr = (string.IsNullOrWhiteSpace(a) || a == L.NothingPlaying)
+                    ? t
+                    : $"{t} • {a}";
+
+                if (UnifiedInfoText.Text != infoStr)
+                {
+                    UnifiedInfoText.Text = infoStr;
+                    UpdateUnifiedInfoMarquee();
+                }
+
+                // Linha 2: Lời bài hát với cuộn nhịp thời gian thực
+                if (_currentLyrics == null)
+                {
+                    SetUnifiedLyricLine(_isPlayingUi ? "♪" : "", 0, false);
+                    return;
+                }
+
+                if (_currentLyrics.IsInstrumental || _currentLyrics.Lines.Count == 0)
+                {
+                    SetUnifiedLyricLine("♪ Instrumental", 0, false);
+                    return;
+                }
+
+                TimeSpan pos = _basePosition;
+                if (_isPlayingUi)
+                    pos += DateTime.UtcNow - _basePositionAt;
+
+                var lineInfo = _currentLyrics.GetLineInfoAt(pos);
+                string text = lineInfo.Text;
+                if (string.IsNullOrWhiteSpace(text))
+                    text = "♪";
+
+                SetUnifiedLyricLine(text, lineInfo.Progress, lineInfo.HasMatch);
+            }
+            else
             {
-                _lyricsWindow?.SetLyric("♪ Instrumental");
-                return;
+                // Modo Separado (2 Janelas)
+                if (StandardTextPanel.Visibility != Visibility.Visible)
+                {
+                    StandardTextPanel.Visibility = Visibility.Visible;
+                    UnifiedTextPanel.Visibility = Visibility.Collapsed;
+                    UpdateMarquee();
+                }
+
+                if (_currentLyrics == null)
+                {
+                    _lyricsWindow?.SetLyric(_isPlayingUi ? "♪" : "");
+                    return;
+                }
+
+                if (_currentLyrics.IsInstrumental || _currentLyrics.Lines.Count == 0)
+                {
+                    _lyricsWindow?.SetLyric("♪ Instrumental");
+                    return;
+                }
+
+                TimeSpan pos = _basePosition;
+                if (_isPlayingUi)
+                    pos += DateTime.UtcNow - _basePositionAt;
+
+                string line = _currentLyrics.GetLineAt(pos);
+                if (string.IsNullOrWhiteSpace(line))
+                    line = "♪";
+
+                _lyricsWindow?.SetLyric(line);
             }
-
-            TimeSpan pos = _basePosition;
-            if (_isPlayingUi)
-                pos += DateTime.UtcNow - _basePositionAt;
-
-            string line = _currentLyrics.GetLineAt(pos);
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                // Intro / interlude between verses
-                line = "♪";
-            }
-
-            _lyricsWindow?.SetLyric(line);
         }
         catch (Exception ex)
         {
             Diag.Log($"[UpdateLyricsUi] {ex}");
         }
+    }
+
+    private void UpdateUnifiedInfoMarquee()
+    {
+        if (UnifiedInfoText == null || UnifiedInfoShift == null) return;
+        double clipWidth = Math.Max(10, TextStack.Width);
+        double dpi = 1.0;
+        try { dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+        var ft = new FormattedText(
+            UnifiedInfoText.Text ?? "",
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface(UnifiedInfoText.FontFamily, UnifiedInfoText.FontStyle, UnifiedInfoText.FontWeight, UnifiedInfoText.FontStretch),
+            UnifiedInfoText.FontSize,
+            Brushes.White,
+            dpi);
+        double textWidth = ft.Width;
+        double overflow = textWidth - clipWidth;
+        if (overflow > 4)
+        {
+            var duration = TimeSpan.FromSeconds(Math.Max(3, overflow / 20.0));
+            var anim = new DoubleAnimation(0, -overflow, duration)
+            {
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                BeginTime = TimeSpan.FromSeconds(1)
+            };
+            UnifiedInfoShift.BeginAnimation(TranslateTransform.XProperty, anim);
+        }
+        else
+        {
+            UnifiedInfoShift.BeginAnimation(TranslateTransform.XProperty, null);
+            UnifiedInfoShift.X = 0;
+        }
+    }
+
+    private void SetUnifiedLyricLine(string text, double progress, bool hasMatch)
+    {
+        text = text?.Trim() ?? "";
+        if (UnifiedLyricText.Text != text)
+        {
+            UnifiedLyricText.Text = text;
+        }
+
+        if (string.IsNullOrEmpty(text) || text == "♪")
+        {
+            UnifiedLyricShift.BeginAnimation(TranslateTransform.XProperty, null);
+            UnifiedLyricShift.X = 0;
+            return;
+        }
+
+        double dpi = 1.0;
+        try { dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+
+        var ft = new FormattedText(
+            text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            new Typeface(UnifiedLyricText.FontFamily, UnifiedLyricText.FontStyle, UnifiedLyricText.FontWeight, UnifiedLyricText.FontStretch),
+            UnifiedLyricText.FontSize,
+            Brushes.White,
+            dpi);
+
+        double textWidth = ft.Width;
+        double clipWidth = Math.Max(10, TextStack.Width);
+        double overflow = textWidth - clipWidth;
+
+        double targetX;
+        if (overflow > 0 && hasMatch)
+        {
+            // Time-synced pacing curve:
+            // 0.0 - 0.15: dwell at start of line
+            // 0.15 - 0.85: smooth paced scroll from 0 to -overflow
+            // 0.85 - 1.0: dwell at end of line
+            double paced;
+            if (progress <= 0.15)
+                paced = 0.0;
+            else if (progress >= 0.85)
+                paced = 1.0;
+            else
+                paced = (progress - 0.15) / 0.70;
+
+            targetX = -overflow * Math.Clamp(paced, 0.0, 1.0);
+        }
+        else
+        {
+            // Text fits inside clip: align according to LyricsAlignment
+            var align = _settings.LyricsAlignment?.ToLowerInvariant();
+            if (align == "right")
+                targetX = Math.Max(0, clipWidth - textWidth);
+            else if (align == "left")
+                targetX = 0;
+            else // center
+                targetX = Math.Max(0, (clipWidth - textWidth) / 2);
+        }
+
+        var anim = new DoubleAnimation(targetX, TimeSpan.FromMilliseconds(100))
+        {
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseOut }
+        };
+        UnifiedLyricShift.BeginAnimation(TranslateTransform.XProperty, anim);
     }
 
     private void VolumePopup_Closed(object sender, EventArgs e)

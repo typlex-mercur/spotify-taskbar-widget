@@ -12,6 +12,8 @@ namespace SpotifyTaskbarWidget;
 
 public record LyricLine(TimeSpan Time, string Text);
 
+public record LyricLineInfo(string Text, TimeSpan StartTime, TimeSpan EndTime, double Progress, bool HasMatch);
+
 public class SongLyrics
 {
     public string Title { get; set; } = "";
@@ -19,11 +21,11 @@ public class SongLyrics
     public bool IsInstrumental { get; set; }
     public List<LyricLine> Lines { get; set; } = new();
 
-    public string GetLineAt(TimeSpan position)
+    public LyricLineInfo GetLineInfoAt(TimeSpan position)
     {
-        if (Lines.Count == 0) return "";
-        
-        // Find the latest line with timestamp <= position
+        if (Lines.Count == 0)
+            return new LyricLineInfo("", TimeSpan.Zero, TimeSpan.Zero, 0, false);
+
         int low = 0, high = Lines.Count - 1;
         int match = -1;
         while (low <= high)
@@ -42,10 +44,29 @@ public class SongLyrics
 
         if (match >= 0)
         {
-            return Lines[match].Text;
+            var cur = Lines[match];
+            TimeSpan start = cur.Time;
+            TimeSpan end = (match + 1 < Lines.Count) ? Lines[match + 1].Time : (start + TimeSpan.FromSeconds(5));
+            TimeSpan duration = end - start;
+            double progress = 0.0;
+            if (duration.TotalMilliseconds > 100)
+            {
+                progress = Math.Clamp((position - start).TotalMilliseconds / duration.TotalMilliseconds, 0.0, 1.0);
+            }
+
+            return new LyricLineInfo(cur.Text, start, end, progress, true);
         }
 
-        return "";
+        TimeSpan nextStart = Lines[0].Time;
+        double introProgress = nextStart.TotalMilliseconds > 0
+            ? Math.Clamp(position.TotalMilliseconds / nextStart.TotalMilliseconds, 0.0, 1.0)
+            : 0;
+        return new LyricLineInfo("♪", TimeSpan.Zero, nextStart, introProgress, false);
+    }
+
+    public string GetLineAt(TimeSpan position)
+    {
+        return GetLineInfoAt(position).Text;
     }
 }
 

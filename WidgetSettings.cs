@@ -53,6 +53,9 @@ public class WidgetSettings
     /// <summary>Alinhamento das letras: Left, Center, Right.</summary>
     public string LyricsAlignment { get; set; } = "Center";
 
+    /// <summary>Gom chung Player và Lyric vào 1 cửa sổ duy nhất (true) hoặc tách 2 cửa sổ (false).</summary>
+    public bool UnifiedLyrics { get; set; } = true;
+
     // Botões visíveis (em ecrãs pequenos, os menos importantes escondem-se sozinhos)
     // ShowPlay = false transforma o widget num mostrador de "a tocar agora" sem
     // controlos (pedido da comunidade — o play era o único que não se escondia)

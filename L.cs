@@ -46,6 +46,8 @@ internal static class L
     public static string LyricsAlignLeft => Pt ? "Esquerda" : "Left";
     public static string LyricsAlignCenter => Pt ? "Centro" : "Center";
     public static string LyricsAlignRight => Pt ? "Direita" : "Right";
+    public static string LyricsModeUnified => Pt ? "1 Janela (Combinada no Player)" : "1 Window (Combined in Player)";
+    public static string LyricsModeSeparate => Pt ? "2 Janelas (Separada na barra)" : "2 Windows (Separate on taskbar)";
     public static string ShowLauncher => Pt ? "Mostrar botão para abrir o Spotify" : "Show button to open Spotify";
     public static string ShowLauncherTip => Pt
         ? "Com o Spotify fechado, mostra um botão para o abrir em vez de esconder o widget"

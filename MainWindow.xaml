@@ -265,6 +265,9 @@
                 <MenuItem x:Name="LyricsMenuItem" Header="Letras (Lyrics)">
                     <MenuItem x:Name="ShowLyricsMenu" Header="Mostrar letras na barra" IsCheckable="True" Click="ShowLyrics_Click"/>
                     <Separator/>
+                    <MenuItem x:Name="LyricsUnifiedMenu" Header="1 Janela (Combinada no Player)" IsCheckable="True" Click="LyricsUnified_Click"/>
+                    <MenuItem x:Name="LyricsSeparateMenu" Header="2 Janelas (Separada na barra)" IsCheckable="True" Click="LyricsSeparate_Click"/>
+                    <Separator/>
                     <MenuItem x:Name="LyricsAlignMenu" Header="Alinhamento">
                         <MenuItem x:Name="LyricsAlignLeftMenu" Header="Esquerda" IsCheckable="True" Click="LyricsAlign_Click" Tag="Left"/>
                         <MenuItem x:Name="LyricsAlignCenterMenu" Header="Centro" IsCheckable="True" Click="LyricsAlign_Click" Tag="Center"/>
@@ -323,20 +326,48 @@
 
                 <!-- Título e artista (cores do Spotify: branco / #B3B3B3) -->
                 <StackPanel x:Name="TextStack" VerticalAlignment="Center" Margin="9,0,6,0" Width="150">
-                    <!-- Canvas: mede o filho com espaço infinito, por isso o título
-                         renderiza SEMPRE completo (a Grid cortava-o à largura da
-                         célula e o marquee deslizava um texto já truncado) -->
-                    <Canvas x:Name="TitleClip" ClipToBounds="True" Height="16">
-                        <TextBlock x:Name="TitleText" Text="Spotify" Foreground="White"
-                                   FontWeight="SemiBold" FontSize="12"
-                                   Canvas.Left="0" Canvas.Top="0">
-                            <TextBlock.RenderTransform>
-                                <TranslateTransform x:Name="TitleShift"/>
-                            </TextBlock.RenderTransform>
-                        </TextBlock>
-                    </Canvas>
-                    <TextBlock x:Name="ArtistText" Text="nada a tocar" Foreground="#B3B3B3"
-                               FontSize="11" TextTrimming="CharacterEllipsis"/>
+                    <!-- Modo Padrão: Título + Artista -->
+                    <StackPanel x:Name="StandardTextPanel">
+                        <!-- Canvas: mede o filho com espaço infinito, por isso o título
+                             renderiza SEMPRE completo (a Grid cortava-o à largura da
+                             célula e o marquee deslizava um texto já truncado) -->
+                        <Canvas x:Name="TitleClip" ClipToBounds="True" Height="16">
+                            <TextBlock x:Name="TitleText" Text="Spotify" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="12"
+                                       Canvas.Left="0" Canvas.Top="0">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform x:Name="TitleShift"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Canvas>
+                        <TextBlock x:Name="ArtistText" Text="nada a tocar" Foreground="#B3B3B3"
+                                   FontSize="11" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+
+                    <!-- Modo Combinado (Unified): Linha 1 = Título • Artista; Linha 2 = Lời bài hát cuộn đồng bộ -->
+                    <StackPanel x:Name="UnifiedTextPanel" Visibility="Collapsed">
+                        <Canvas x:Name="UnifiedTitleClip" ClipToBounds="True" Height="15">
+                            <TextBlock x:Name="UnifiedInfoText" Text="Spotify" Foreground="#B3B3B3"
+                                       FontWeight="Normal" FontSize="10.5"
+                                       Canvas.Left="0" Canvas.Top="0">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform x:Name="UnifiedInfoShift"/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Canvas>
+                        <Canvas x:Name="UnifiedLyricClip" ClipToBounds="True" Height="17">
+                            <TextBlock x:Name="UnifiedLyricText" Text="♪" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="11.5"
+                                       Canvas.Left="0" Canvas.Top="0">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform x:Name="UnifiedLyricShift"/>
+                                </TextBlock.RenderTransform>
+                                <TextBlock.Effect>
+                                    <DropShadowEffect Color="#000000" BlurRadius="4" ShadowDepth="1" Opacity="0.8" Direction="270"/>
+                                </TextBlock.Effect>
+                            </TextBlock>
+                        </Canvas>
+                    </StackPanel>
                 </StackPanel>
 
                 <!-- Favoritos: ⊕ cinzento / ✓ verde em círculo, ícones do Spotify -->
