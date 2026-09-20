@@ -1687,7 +1687,6 @@ public partial class MainWindow : Window
             double scrollSeconds = Math.Max(1.5, overflow / 25.0);
             double end = -(overflow + 12);
             var anim = new DoubleAnimationUsingKeyFrames();
-            Timeline.SetDesiredFrameRate(anim, 60);
             double t = 2.0; // pausa inicial (ler o início)
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
@@ -2181,7 +2180,6 @@ public partial class MainWindow : Window
             double scrollSeconds = Math.Max(1.5, overflow / 25.0);
             double end = -(overflow + 10);
             var anim = new DoubleAnimationUsingKeyFrames();
-            Timeline.SetDesiredFrameRate(anim, 60);
             double t = 2.0; // pausa inicial
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
@@ -2201,6 +2199,7 @@ public partial class MainWindow : Window
     private string _currentUnifiedLyric = "";
     private double _lastLyricClipWidth = 0;
     private double _lastLyricOverflow = 0;
+    private bool _isLyricScrollingActive = false;
     private static readonly IEasingFunction LyricTransitionEase = new CubicEase { EasingMode = EasingMode.EaseOut };
 
     private static double CalculateLyricScrollTarget(double overflow, double progress, bool hasMatch, bool isPlaying)
@@ -2216,6 +2215,40 @@ public partial class MainWindow : Window
 
         double ratio = (progress - 0.12) / 0.76;
         return -overflow * ratio;
+    }
+
+    private static void StartContinuousLyricScroll(TranslateTransform transform, double overflow, double progress, TimeSpan lineDuration)
+    {
+        if (overflow <= 4 || lineDuration <= TimeSpan.Zero)
+        {
+            transform.BeginAnimation(TranslateTransform.XProperty, null);
+            transform.X = 0;
+            return;
+        }
+
+        if (progress >= 0.88)
+            return;
+
+        double totalSec = Math.Max(0.5, lineDuration.TotalSeconds);
+        var anim = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.HoldEnd };
+
+        if (progress < 0.12)
+        {
+            double delaySec = (0.12 - progress) * totalSec;
+            double scrollSec = 0.76 * totalSec;
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(delaySec))));
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(-overflow, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(delaySec + scrollSec))));
+        }
+        else
+        {
+            double startX = -overflow * ((progress - 0.12) / 0.76);
+            double remainingSec = (0.88 - progress) * totalSec;
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(startX, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(-overflow, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(Math.Max(0.05, remainingSec)))));
+        }
+
+        transform.BeginAnimation(TranslateTransform.XProperty, anim);
     }
 
     private void SetUnifiedLyricLine(string text, double progress, bool hasMatch, TimeSpan lineDuration)
@@ -2239,9 +2272,9 @@ public partial class MainWindow : Window
 
             if (string.IsNullOrEmpty(text))
             {
+                _isLyricScrollingActive = false;
                 _lastLyricOverflow = 0;
                 var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
-                Timeline.SetDesiredFrameRate(fadeOut, 60);
                 currentTb.BeginAnimation(OpacityProperty, fadeOut);
                 nextTb.BeginAnimation(OpacityProperty, null);
                 nextTb.Opacity = 0;
@@ -2266,19 +2299,27 @@ public partial class MainWindow : Window
             double textWidth = ft.Width;
             _lastLyricOverflow = Math.Max(0, textWidth - clipWidth);
 
-            // Bắt đầu vị trí X chuẩn xác theo tiến độ thực tế (nếu câu hát tải giữa chừng hoặc sau khi tua)
-            double initialTargetX = CalculateLyricScrollTarget(_lastLyricOverflow, progress, hasMatch, _isPlayingUi);
-            nextTr.BeginAnimation(TranslateTransform.XProperty, null);
-            nextTr.X = initialTargetX;
+            // Bắt đầu scroll animation mượt mà 120 FPS
+            if (_isPlayingUi && _lastLyricOverflow > 4)
+            {
+                StartContinuousLyricScroll(nextTr, _lastLyricOverflow, progress, lineDuration);
+                _isLyricScrollingActive = true;
+            }
+            else
+            {
+                _isLyricScrollingActive = false;
+                double initialTargetX = CalculateLyricScrollTarget(_lastLyricOverflow, progress, hasMatch, _isPlayingUi);
+                nextTr.BeginAnimation(TranslateTransform.XProperty, null);
+                nextTr.X = initialTargetX;
+            }
 
-            // Crossfade & trượt Y giữa 2 layer
+            // Crossfade & trượt Y giữa 2 layer (tự nhiên theo tần số quét 120Hz của màn hình)
             if (string.IsNullOrEmpty(currentTb.Text) || currentTb.Opacity < 0.05)
             {
                 nextTb.Text = text;
                 nextTr.BeginAnimation(TranslateTransform.YProperty, null);
                 nextTr.Y = 0;
                 var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
-                Timeline.SetDesiredFrameRate(fadeIn, 60);
                 nextTb.BeginAnimation(OpacityProperty, fadeIn);
                 currentTb.BeginAnimation(OpacityProperty, null);
                 currentTb.Opacity = 0;
@@ -2289,8 +2330,6 @@ public partial class MainWindow : Window
                 // Linha de saída: sobe ligeiramente (-4px) e esbate para fora
                 var fadeOutAnim = new DoubleAnimation(0, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
                 var slideOutAnim = new DoubleAnimation(-4, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
-                Timeline.SetDesiredFrameRate(fadeOutAnim, 60);
-                Timeline.SetDesiredFrameRate(slideOutAnim, 60);
                 currentTb.BeginAnimation(OpacityProperty, fadeOutAnim);
                 currentTr.BeginAnimation(TranslateTransform.YProperty, slideOutAnim);
 
@@ -2301,8 +2340,6 @@ public partial class MainWindow : Window
 
                 var fadeInAnim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
                 var slideInAnim = new DoubleAnimation(0, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
-                Timeline.SetDesiredFrameRate(fadeInAnim, 60);
-                Timeline.SetDesiredFrameRate(slideInAnim, 60);
 
                 nextTb.BeginAnimation(OpacityProperty, fadeInAnim);
                 nextTr.BeginAnimation(TranslateTransform.YProperty, slideInAnim);
@@ -2312,12 +2349,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 2. Câu hát không đổi: liên tục neo vị trí X theo nhịp progress thời gian thực
+        // 2. Câu hát không đổi: liên tục kiểm tra và đồng bộ vị trí
         var activeTb = _unifiedActiveLayer == 0 ? UnifiedLyricText : UnifiedLyricTextTop;
         var activeTr = _unifiedActiveLayer == 0 ? UnifiedLyricShift : UnifiedLyricShiftTop;
 
-        if (string.IsNullOrEmpty(text) || text == "♪" || !hasMatch)
+        if (string.IsNullOrEmpty(text) || text == "♪" || !hasMatch || _lastLyricOverflow <= 4)
         {
+            _isLyricScrollingActive = false;
             if (activeTr.X != 0)
             {
                 activeTr.BeginAnimation(TranslateTransform.XProperty, null);
@@ -2343,32 +2381,40 @@ public partial class MainWindow : Window
                 dpi);
 
             _lastLyricOverflow = Math.Max(0, ft.Width - clipWidth);
+            if (_isPlayingUi)
+            {
+                StartContinuousLyricScroll(activeTr, _lastLyricOverflow, progress, lineDuration);
+                _isLyricScrollingActive = true;
+            }
         }
 
         if (!_isPlayingUi)
         {
             // Tạm dừng: cố định vị trí hiện tại
-            activeTr.BeginAnimation(TranslateTransform.XProperty, null);
-            return;
-        }
-
-        if (_lastLyricOverflow <= 4)
-        {
-            if (activeTr.X != 0)
+            if (_isLyricScrollingActive)
             {
+                _isLyricScrollingActive = false;
+                double currentX = (double)activeTr.GetValue(TranslateTransform.XProperty);
                 activeTr.BeginAnimation(TranslateTransform.XProperty, null);
-                activeTr.X = 0;
+                activeTr.X = currentX;
             }
             return;
         }
 
-        // Đang phát và câu dài tràn lề: trượt mượt 120ms theo đúng tiến độ của ca sĩ
-        double targetX = CalculateLyricScrollTarget(_lastLyricOverflow, progress, hasMatch, _isPlayingUi);
-        if (Math.Abs(activeTr.X - targetX) > 0.5)
+        if (!_isLyricScrollingActive)
         {
-            var anim = new DoubleAnimation(targetX, TimeSpan.FromMilliseconds(120));
-            Timeline.SetDesiredFrameRate(anim, 60);
-            activeTr.BeginAnimation(TranslateTransform.XProperty, anim);
+            // Vừa bấm Play tiếp tục phát
+            _isLyricScrollingActive = true;
+            StartContinuousLyricScroll(activeTr, _lastLyricOverflow, progress, lineDuration);
+            return;
+        }
+
+        // Kiểm tra lệch nhịp / tua: chỉ tái kích hoạt animation nếu lệch quá 8 pixel
+        double expectedX = CalculateLyricScrollTarget(_lastLyricOverflow, progress, hasMatch, _isPlayingUi);
+        double curX = (double)activeTr.GetValue(TranslateTransform.XProperty);
+        if (Math.Abs(curX - expectedX) > 8.0)
+        {
+            StartContinuousLyricScroll(activeTr, _lastLyricOverflow, progress, lineDuration);
         }
     }
 
