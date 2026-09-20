@@ -16,6 +16,10 @@ public class WidgetSettings
     /// propósito: arrastar um widget não pode mexer nos dos outros ecrãs.</summary>
     public Dictionary<int, double> ManualX { get; set; } = new();
 
+    /// <summary>Manual positions when taskbar is Left-aligned (px), indexed by monitor.
+    /// Separate from ManualX so switching alignment restores the correct position.</summary>
+    public Dictionary<int, double> ManualXLeft { get; set; } = new();
+
     /// <summary>Escala do widget (0.8 = pequeno, 1.0 = normal, 1.1 = grande).</summary>
     public double Scale { get; set; } = 1.0;
 
@@ -85,6 +89,7 @@ public class WidgetSettings
             // impedir o arranque (ficava um processo invisível para sempre)
             if (s.Monitors is null) s.Monitors = new List<int>();
             if (s.ManualX is null) s.ManualX = new Dictionary<int, double>();
+            if (s.ManualXLeft is null) s.ManualXLeft = new Dictionary<int, double>();
         }
         catch
         {

@@ -159,6 +159,7 @@ public partial class MainWindow : Window
     private DateTime _lastAnchorQuery = DateTime.MinValue;
     private bool _anchorQueryRunning;
     private IntPtr _anchorsTray;
+    private bool _lastKnownLeftAligned;
 
     private const double MaxTextWidth = 150;
     private const double MinTextWidth = 60;
@@ -243,6 +244,7 @@ public partial class MainWindow : Window
         }
         ApplyThemeIfChanged();
         RebuildMonitorMenu();
+        _lastKnownLeftAligned = IsTaskbarLeftAligned();
         ApplySettingsUi();
         // As definições são partilhadas: quando outra janela grava, re-aplicar
         WidgetSettings.Changed += OnSettingsChanged;
@@ -594,6 +596,14 @@ public partial class MainWindow : Window
             }
         }
         // Daqui para baixo a barra está assente no ecrã — âncoras fiáveis
+        bool isLeft = IsTaskbarLeftAligned();
+        if (isLeft != _lastKnownLeftAligned)
+        {
+            _lastKnownLeftAligned = isLeft;
+            // Alignment mudou: invalidar âncoras para recalcular posição
+            _lastAnchorQuery = DateTime.MinValue;
+            lock (_anchorLock) { _widgetsRightPx = null; _startLeftPx = null; _taskEndPx = null; }
+        }
         RefreshAnchors(tray);
         double? widgetsRightPx, startLeftPx, taskEndPx;
         lock (_anchorLock)
@@ -614,14 +624,15 @@ public partial class MainWindow : Window
         bool rightAnchored = false;
         int rightAnchorLeftLimitPx = r.Left + 12;
         int leftPx, rightLimitPx;
-        if (_settings.ManualX.TryGetValue(TrayIndex, out double manualX))
+        var manualDict = isLeft ? _settings.ManualXLeft : _settings.ManualX;
+        if (manualDict.TryGetValue(TrayIndex, out double manualX))
         {
             // Posição manual DESTA barra (por monitor — arrastar um widget não
             // pode arrastar os dos outros ecrãs)
             leftPx = (int)Math.Max(r.Left + 4, Math.Min(manualX, r.Right - winWidth - 4));
             rightLimitPx = r.Right - 4;
         }
-        else if (!IsTaskbarLeftAligned())
+        else if (!isLeft)
         {
             // Numa barra centrada o botão Iniciar existe sempre — âncora nula
             // significa que a leitura ainda não chegou ou falhou.
@@ -733,7 +744,7 @@ public partial class MainWindow : Window
                 int rightBoundPx = (notifyLeft ?? (r.Right - 220)) - 16;
                 int leftBoundPx;
 
-                if (!IsTaskbarLeftAligned())
+                if (!isLeft)
                 {
                     // Barra centrada: o espaço livre à direita começa logo após os botões das apps
                     leftBoundPx = taskEndPx.HasValue
@@ -1952,7 +1963,10 @@ public partial class MainWindow : Window
                 // Fica bloqueado nesta posição (modo manual) SÓ nesta barra;
                 // px físicos, indexados pelo monitor desta janela
                 if (Interop.GetWindowRect(_hwnd, out var w))
-                    _settings.ManualX[TrayIndex] = w.Left;
+                {
+                    var targetDict = IsTaskbarLeftAligned() ? _settings.ManualXLeft : _settings.ManualX;
+                    targetDict[TrayIndex] = w.Left;
+                }
                 _settings.Save();
             }
         }
@@ -1977,6 +1991,7 @@ public partial class MainWindow : Window
         // monitores fica como está (limpá-la destruía a escolha do utilizador)
         _settings.AutoPosition = true;
         _settings.ManualX.Clear();
+        _settings.ManualXLeft.Clear();
         _settings.Save();
         MoveMenu.IsChecked = false;
         _moveMode = false;
