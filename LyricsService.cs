@@ -167,6 +167,50 @@ public sealed class LyricsService
         public string? Content { get; set; }
     }
 
+    private class QqSearchResponse
+    {
+        [JsonPropertyName("data")]
+        public QqSearchData? Data { get; set; }
+    }
+
+    private class QqSearchData
+    {
+        [JsonPropertyName("song")]
+        public QqSongContainer? Song { get; set; }
+    }
+
+    private class QqSongContainer
+    {
+        [JsonPropertyName("list")]
+        public List<QqSongItem>? List { get; set; }
+    }
+
+    private class QqSongItem
+    {
+        [JsonPropertyName("songname")]
+        public string? SongName { get; set; }
+        [JsonPropertyName("songmid")]
+        public string? SongMid { get; set; }
+        [JsonPropertyName("interval")]
+        public int Interval { get; set; }
+        [JsonPropertyName("singer")]
+        public List<QqSingerItem>? Singer { get; set; }
+    }
+
+    private class QqSingerItem
+    {
+        [JsonPropertyName("name")]
+        public string? Name { get; set; }
+    }
+
+    private class QqLyricResponse
+    {
+        [JsonPropertyName("retcode")]
+        public int RetCode { get; set; }
+        [JsonPropertyName("lyric")]
+        public string? Lyric { get; set; }
+    }
+
     private static async Task<HttpResponseMessage?> HttpGetWithRetryAsync(string url, int maxRetries = 2)
     {
         for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -238,11 +282,41 @@ public sealed class LyricsService
                 }
             }
 
+            // 1b. Try clean title & clean artist (fixes multi-artist Spotify strings like "PiaLinh, Lâm Bảo Ngọc, Minh Cà Ri")
+            if (result == null && (cleanTitle != title || cleanArtist != artist))
+            {
+                string cleanUrl = $"https://lrclib.net/api/get?track_name={Uri.EscapeDataString(cleanTitle)}&artist_name={Uri.EscapeDataString(cleanArtist)}";
+                if (duration > TimeSpan.Zero)
+                {
+                    cleanUrl += $"&duration={(int)Math.Round(duration.TotalSeconds)}";
+                }
+                var cleanResp = await HttpGetWithRetryAsync(cleanUrl);
+                if (cleanResp != null && cleanResp.IsSuccessStatusCode)
+                {
+                    var data = await cleanResp.Content.ReadFromJsonAsync<LrclibResponse>();
+                    if (data != null)
+                    {
+                        if (!string.IsNullOrWhiteSpace(data.SyncedLyrics))
+                        {
+                            result = ParseLrclibResponse(data, duration);
+                        }
+                        else if (data.Instrumental && instrumentalFallback == null)
+                        {
+                            instrumentalFallback = data;
+                        }
+                        else if (plainFallback == null && !string.IsNullOrWhiteSpace(data.PlainLyrics))
+                        {
+                            plainFallback = data;
+                        }
+                    }
+                }
+            }
+
             // 2. Try normalized diacritics
             string noDiaTitle = RemoveDiacritics(cleanTitle);
             string noDiaArtist = RemoveDiacritics(cleanArtist);
 
-            if (result == null && (cleanTitle != title || cleanArtist != artist || noDiaArtist != cleanArtist))
+            if (result == null && (noDiaTitle != cleanTitle || noDiaArtist != cleanArtist))
             {
                 string fallbackUrl = $"https://lrclib.net/api/get?track_name={Uri.EscapeDataString(noDiaTitle)}&artist_name={Uri.EscapeDataString(noDiaArtist)}";
                 if (duration > TimeSpan.Zero)
@@ -271,7 +345,7 @@ public sealed class LyricsService
                 }
             }
 
-            // 3. Search queries prioritizing synced lyrics (fixes songs where synced lyrics are under alternate artist spelling)
+            // 3. Search queries prioritizing synced lyrics (with STRICT title & artist validation)
             if (result == null)
             {
                 var searchQueries = new List<string>
@@ -291,8 +365,13 @@ public sealed class LyricsService
                         var list = await searchResp.Content.ReadFromJsonAsync<List<LrclibResponse>>();
                         if (list != null && list.Count > 0)
                         {
-                            // ALWAYS prioritize actual synced lyrics
-                            var syncedItems = list.Where(x => !string.IsNullOrWhiteSpace(x.SyncedLyrics)).ToList();
+                            // STRICT: Only consider items whose title and artist actually match!
+                            var syncedItems = list.Where(x =>
+                                !string.IsNullOrWhiteSpace(x.SyncedLyrics) &&
+                                IsTitleMatch(x.TrackName ?? "", cleanTitle) &&
+                                IsArtistMatch(x.ArtistName ?? "", artist, cleanArtist)
+                            ).ToList();
+
                             if (syncedItems.Count > 0)
                             {
                                 double targetSec = duration.TotalSeconds;
@@ -308,28 +387,46 @@ public sealed class LyricsService
 
                             if (instrumentalFallback == null)
                             {
-                                instrumentalFallback = list.FirstOrDefault(x => x.Instrumental);
+                                instrumentalFallback = list.FirstOrDefault(x =>
+                                    x.Instrumental &&
+                                    IsTitleMatch(x.TrackName ?? "", cleanTitle) &&
+                                    IsArtistMatch(x.ArtistName ?? "", artist, cleanArtist)
+                                );
                             }
                             if (plainFallback == null)
                             {
-                                plainFallback = list.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.PlainLyrics));
+                                plainFallback = list.FirstOrDefault(x =>
+                                    !string.IsNullOrWhiteSpace(x.PlainLyrics) &&
+                                    IsTitleMatch(x.TrackName ?? "", cleanTitle) &&
+                                    IsArtistMatch(x.ArtistName ?? "", artist, cleanArtist)
+                                );
                             }
                         }
                     }
                 }
             }
 
-            // 4. Fallback to Kugou synced lyrics if no synced lyrics found on LRCLIB
+            // 4. Fallback to QQ Music synced lyrics (great coverage for Vietnamese, Asian, and international songs)
             if (result == null)
             {
-                result = await FetchKugouLyricsAsync(cleanTitle, cleanArtist, duration);
+                result = await FetchQqMusicLyricsAsync(cleanTitle, cleanArtist, artist, duration);
                 if (result == null && (noDiaTitle != cleanTitle || noDiaArtist != cleanArtist))
                 {
-                    result = await FetchKugouLyricsAsync(noDiaTitle, noDiaArtist, duration);
+                    result = await FetchQqMusicLyricsAsync(noDiaTitle, noDiaArtist, artist, duration);
                 }
             }
 
-            // 5. Fallback to confirmed instrumental only (never fake linear timestamps for plain text)
+            // 5. Fallback to Kugou synced lyrics if no synced lyrics found yet
+            if (result == null)
+            {
+                result = await FetchKugouLyricsAsync(cleanTitle, cleanArtist, artist, duration);
+                if (result == null && (noDiaTitle != cleanTitle || noDiaArtist != cleanArtist))
+                {
+                    result = await FetchKugouLyricsAsync(noDiaTitle, noDiaArtist, artist, duration);
+                }
+            }
+
+            // 6. Fallback to confirmed instrumental only (never fake linear timestamps for plain text)
             if (result == null && instrumentalFallback != null && instrumentalFallback.Instrumental)
             {
                 result = ParseLrclibResponse(instrumentalFallback, duration);
@@ -351,7 +448,86 @@ public sealed class LyricsService
         return result;
     }
 
-    private static async Task<SongLyrics?> FetchKugouLyricsAsync(string title, string artist, TimeSpan duration)
+    private static async Task<SongLyrics?> FetchQqMusicLyricsAsync(string title, string artist, string fullArtist, TimeSpan duration)
+    {
+        try
+        {
+            string query = $"{title} {artist}".Trim();
+            if (string.IsNullOrWhiteSpace(query)) return null;
+
+            string searchUrl = $"https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=5&w={Uri.EscapeDataString(query)}&format=json";
+            var searchResp = await HttpGetWithRetryAsync(searchUrl, 1);
+            if (searchResp == null || !searchResp.IsSuccessStatusCode) return null;
+
+            var searchData = await searchResp.Content.ReadFromJsonAsync<QqSearchResponse>();
+            var songs = searchData?.Data?.Song?.List;
+            if (songs == null || songs.Count == 0) return null;
+
+            double targetSec = duration.TotalSeconds;
+
+            foreach (var song in songs)
+            {
+                if (string.IsNullOrEmpty(song.SongMid)) continue;
+                if (!IsTitleMatch(song.SongName ?? "", title)) continue;
+
+                string candArtist = song.Singer != null && song.Singer.Count > 0
+                    ? string.Join(", ", song.Singer.Select(s => s.Name ?? ""))
+                    : "";
+
+                if (!IsArtistMatch(candArtist, fullArtist, artist)) continue;
+
+                if (duration > TimeSpan.Zero && song.Interval > 0)
+                {
+                    if (Math.Abs(song.Interval - targetSec) > 15) continue;
+                }
+
+                string lyricUrl = $"https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid={song.SongMid}&format=json&nobase64=1";
+                var req = new HttpRequestMessage(HttpMethod.Get, lyricUrl);
+                req.Headers.Referrer = new Uri("https://y.qq.com");
+                var lyricResp = await Http.SendAsync(req);
+                if (!lyricResp.IsSuccessStatusCode) continue;
+
+                var lyricData = await lyricResp.Content.ReadFromJsonAsync<QqLyricResponse>();
+                string? rawLrc = lyricData?.Lyric;
+                if (string.IsNullOrWhiteSpace(rawLrc)) continue;
+
+                rawLrc = System.Net.WebUtility.HtmlDecode(rawLrc);
+                var lines = ParseLrc(rawLrc);
+                if (lines.Count == 0) continue;
+
+                // Clean metadata / intro header lines
+                lines.RemoveAll(line =>
+                    (line.Time < TimeSpan.FromSeconds(5) && (line.Text.Contains(title, StringComparison.OrdinalIgnoreCase) || line.Text.Contains(artist, StringComparison.OrdinalIgnoreCase))) ||
+                    line.Text.StartsWith("Lyrics by", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Composed by", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Written by", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Arranged by", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Produced by", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Nhạc sĩ", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Sáng tác", StringComparison.OrdinalIgnoreCase) ||
+                    line.Text.StartsWith("Lời:", StringComparison.OrdinalIgnoreCase));
+
+                if (lines.Count > 0)
+                {
+                    return new SongLyrics
+                    {
+                        Title = title,
+                        Artist = artist,
+                        IsInstrumental = false,
+                        Lines = lines
+                    };
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Diag.Log($"[LyricsService] QQ Music fetch failed for '{artist} - {title}': {ex.Message}");
+        }
+
+        return null;
+    }
+
+    private static async Task<SongLyrics?> FetchKugouLyricsAsync(string title, string artist, string fullArtist, TimeSpan duration)
     {
         try
         {
@@ -371,6 +547,12 @@ public sealed class LyricsService
             foreach (var song in songs)
             {
                 if (string.IsNullOrEmpty(song.Hash)) continue;
+                if (!IsTitleMatch(song.SongName ?? "", title)) continue;
+                if (!IsArtistMatch(song.SingerName ?? "", fullArtist, artist)) continue;
+                if (duration > TimeSpan.Zero && song.Duration > 0)
+                {
+                    if (Math.Abs(song.Duration - duration.TotalSeconds) > 15) continue;
+                }
 
                 string candUrl = $"http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=&hash={song.Hash}";
                 var candResp = await HttpGetWithRetryAsync(candUrl, 1);
@@ -513,5 +695,48 @@ public sealed class LyricsService
                 sb.Append(c);
         }
         return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+    }
+
+    public static bool IsTitleMatch(string candTitle, string expectedTitle)
+    {
+        if (string.IsNullOrWhiteSpace(candTitle) || string.IsNullOrWhiteSpace(expectedTitle)) return false;
+        string ca = CleanTrackTitle(candTitle);
+        string cb = CleanTrackTitle(expectedTitle);
+        if (string.Equals(ca, cb, StringComparison.OrdinalIgnoreCase)) return true;
+
+        string na = RemoveDiacritics(ca).Trim();
+        string nb = RemoveDiacritics(cb).Trim();
+        if (string.Equals(na, nb, StringComparison.OrdinalIgnoreCase)) return true;
+
+        string sa = Regex.Replace(na, @"[^\w\s]", "").Trim();
+        string sb = Regex.Replace(nb, @"[^\w\s]", "").Trim();
+        if (string.Equals(sa, sb, StringComparison.OrdinalIgnoreCase)) return true;
+
+        if (sa.Length > 3 && sb.Length > 3)
+        {
+            if (sa.Contains(sb, StringComparison.OrdinalIgnoreCase) || sb.Contains(sa, StringComparison.OrdinalIgnoreCase))
+            {
+                double ratio = (double)Math.Min(sa.Length, sb.Length) / Math.Max(sa.Length, sb.Length);
+                if (ratio >= 0.70) return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static bool IsArtistMatch(string candArtist, string expectedFullArtist, string expectedCleanArtist)
+    {
+        if (string.IsNullOrWhiteSpace(candArtist)) return true;
+        string nc = RemoveDiacritics(CleanArtistName(candArtist)).Trim();
+        string nClean = RemoveDiacritics(expectedCleanArtist).Trim();
+        string nFull = RemoveDiacritics(expectedFullArtist).Trim();
+
+        if (nc.Length == 0) return true;
+        if (nClean.Contains(nc, StringComparison.OrdinalIgnoreCase) || nc.Contains(nClean, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (nFull.Contains(nc, StringComparison.OrdinalIgnoreCase) || nc.Contains(nFull, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 }
