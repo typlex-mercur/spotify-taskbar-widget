@@ -119,6 +119,54 @@ public sealed class LyricsService
         public string? SyncedLyrics { get; set; }
     }
 
+    private class KugouSearchResponse
+    {
+        [JsonPropertyName("data")]
+        public KugouSearchData? Data { get; set; }
+    }
+
+    private class KugouSearchData
+    {
+        [JsonPropertyName("info")]
+        public List<KugouSongInfo>? Info { get; set; }
+    }
+
+    private class KugouSongInfo
+    {
+        [JsonPropertyName("songname")]
+        public string? SongName { get; set; }
+        [JsonPropertyName("singername")]
+        public string? SingerName { get; set; }
+        [JsonPropertyName("hash")]
+        public string? Hash { get; set; }
+        [JsonPropertyName("duration")]
+        public int Duration { get; set; }
+    }
+
+    private class KugouCandidatesResponse
+    {
+        [JsonPropertyName("candidates")]
+        public List<KugouCandidate>? Candidates { get; set; }
+    }
+
+    private class KugouCandidate
+    {
+        [JsonPropertyName("id")]
+        public object? Id { get; set; }
+        [JsonPropertyName("accesskey")]
+        public string? AccessKey { get; set; }
+        [JsonPropertyName("song")]
+        public string? Song { get; set; }
+        [JsonPropertyName("singer")]
+        public string? Singer { get; set; }
+    }
+
+    private class KugouDownloadResponse
+    {
+        [JsonPropertyName("content")]
+        public string? Content { get; set; }
+    }
+
     private static async Task<HttpResponseMessage?> HttpGetWithRetryAsync(string url, int maxRetries = 2)
     {
         for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -158,6 +206,7 @@ public sealed class LyricsService
 
         SongLyrics? result = null;
         LrclibResponse? plainFallback = null;
+        LrclibResponse? instrumentalFallback = null;
 
         try
         {
@@ -174,11 +223,15 @@ public sealed class LyricsService
                 var data = await resp.Content.ReadFromJsonAsync<LrclibResponse>();
                 if (data != null)
                 {
-                    if (!string.IsNullOrWhiteSpace(data.SyncedLyrics) || data.Instrumental)
+                    if (!string.IsNullOrWhiteSpace(data.SyncedLyrics))
                     {
                         result = ParseLrclibResponse(data, duration);
                     }
-                    else
+                    else if (data.Instrumental)
+                    {
+                        instrumentalFallback = data;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(data.PlainLyrics))
                     {
                         plainFallback = data;
                     }
@@ -202,11 +255,15 @@ public sealed class LyricsService
                     var data = await fallbackResp.Content.ReadFromJsonAsync<LrclibResponse>();
                     if (data != null)
                     {
-                        if (!string.IsNullOrWhiteSpace(data.SyncedLyrics) || data.Instrumental)
+                        if (!string.IsNullOrWhiteSpace(data.SyncedLyrics))
                         {
                             result = ParseLrclibResponse(data, duration);
                         }
-                        else if (plainFallback == null)
+                        else if (data.Instrumental && instrumentalFallback == null)
+                        {
+                            instrumentalFallback = data;
+                        }
+                        else if (plainFallback == null && !string.IsNullOrWhiteSpace(data.PlainLyrics))
                         {
                             plainFallback = data;
                         }
@@ -234,35 +291,48 @@ public sealed class LyricsService
                         var list = await searchResp.Content.ReadFromJsonAsync<List<LrclibResponse>>();
                         if (list != null && list.Count > 0)
                         {
-                            var syncedItems = list.Where(x => !string.IsNullOrWhiteSpace(x.SyncedLyrics) || x.Instrumental).ToList();
+                            // ALWAYS prioritize actual synced lyrics
+                            var syncedItems = list.Where(x => !string.IsNullOrWhiteSpace(x.SyncedLyrics)).ToList();
                             if (syncedItems.Count > 0)
                             {
-                                LrclibResponse best;
-                                if (duration > TimeSpan.Zero)
-                                {
-                                    double targetSec = duration.TotalSeconds;
-                                    best = syncedItems.OrderBy(x => Math.Abs(x.Duration - targetSec)).First();
-                                }
-                                else
-                                {
-                                    best = syncedItems[0];
-                                }
+                                double targetSec = duration.TotalSeconds;
+                                var best = syncedItems
+                                    .OrderBy(x => x.TrackName?.Contains("Instrumental", StringComparison.OrdinalIgnoreCase) == true ? 1 : 0)
+                                    .ThenBy(x => string.Equals(CleanTrackTitle(x.TrackName ?? ""), cleanTitle, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                                    .ThenBy(x => duration > TimeSpan.Zero ? Math.Abs(x.Duration - targetSec) : 0)
+                                    .First();
+
                                 result = ParseLrclibResponse(best, duration);
                                 break;
                             }
-                            else if (plainFallback == null)
+
+                            if (instrumentalFallback == null)
                             {
-                                plainFallback = list[0];
+                                instrumentalFallback = list.FirstOrDefault(x => x.Instrumental);
+                            }
+                            if (plainFallback == null)
+                            {
+                                plainFallback = list.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.PlainLyrics));
                             }
                         }
                     }
                 }
             }
 
-            // 4. Fallback to plain lyrics if no synced lyrics found anywhere
-            if (result == null && plainFallback != null)
+            // 4. Fallback to Kugou synced lyrics if no synced lyrics found on LRCLIB
+            if (result == null)
             {
-                result = ParseLrclibResponse(plainFallback, duration);
+                result = await FetchKugouLyricsAsync(cleanTitle, cleanArtist, duration);
+                if (result == null && (noDiaTitle != cleanTitle || noDiaArtist != cleanArtist))
+                {
+                    result = await FetchKugouLyricsAsync(noDiaTitle, noDiaArtist, duration);
+                }
+            }
+
+            // 5. Fallback to confirmed instrumental only (never fake linear timestamps for plain text)
+            if (result == null && instrumentalFallback != null && instrumentalFallback.Instrumental)
+            {
+                result = ParseLrclibResponse(instrumentalFallback, duration);
             }
         }
         catch (Exception ex)
@@ -279,6 +349,85 @@ public sealed class LyricsService
         }
 
         return result;
+    }
+
+    private static async Task<SongLyrics?> FetchKugouLyricsAsync(string title, string artist, TimeSpan duration)
+    {
+        try
+        {
+            string qTitle = Regex.Replace(title, @"[?!\(\)\[\]•·\-_]", " ").Trim();
+            string qArtist = Regex.Replace(artist, @"[?!\(\)\[\]•·\-_]", " ").Trim();
+            string query = $"{qTitle} {qArtist}".Trim();
+            if (string.IsNullOrWhiteSpace(query)) return null;
+
+            string searchUrl = $"http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword={Uri.EscapeDataString(query)}&page=1&pagesize=5";
+            var searchResp = await HttpGetWithRetryAsync(searchUrl, 1);
+            if (searchResp == null || !searchResp.IsSuccessStatusCode) return null;
+
+            var searchData = await searchResp.Content.ReadFromJsonAsync<KugouSearchResponse>();
+            var songs = searchData?.Data?.Info;
+            if (songs == null || songs.Count == 0) return null;
+
+            foreach (var song in songs)
+            {
+                if (string.IsNullOrEmpty(song.Hash)) continue;
+
+                string candUrl = $"http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=&duration=&hash={song.Hash}";
+                var candResp = await HttpGetWithRetryAsync(candUrl, 1);
+                if (candResp == null || !candResp.IsSuccessStatusCode) continue;
+
+                var candData = await candResp.Content.ReadFromJsonAsync<KugouCandidatesResponse>();
+                var candidates = candData?.Candidates;
+                if (candidates == null || candidates.Count == 0) continue;
+
+                var cand = candidates[0];
+                string cid = cand.Id?.ToString() ?? "";
+                if (string.IsNullOrEmpty(cand.AccessKey) || string.IsNullOrEmpty(cid)) continue;
+
+                string dlUrl = $"http://lyrics.kugou.com/download?ver=1&client=pc&id={cid}&accesskey={cand.AccessKey}&fmt=lrc&charset=utf8";
+                var dlResp = await HttpGetWithRetryAsync(dlUrl, 1);
+                if (dlResp == null || !dlResp.IsSuccessStatusCode) continue;
+
+                var dlData = await dlResp.Content.ReadFromJsonAsync<KugouDownloadResponse>();
+                if (string.IsNullOrEmpty(dlData?.Content)) continue;
+
+                byte[] bytes = Convert.FromBase64String(dlData.Content);
+                string lrc = System.Text.Encoding.UTF8.GetString(bytes);
+
+                var lines = ParseLrc(lrc);
+                if (lines.Count > 0)
+                {
+                    // Clean credit / intro header lines so intro is recognized as music "♪"
+                    lines.RemoveAll(line =>
+                        (line.Time < TimeSpan.FromSeconds(5) && (line.Text.Contains(title, StringComparison.OrdinalIgnoreCase) || line.Text.Contains(artist, StringComparison.OrdinalIgnoreCase))) ||
+                        line.Text.StartsWith("Lyrics by", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Composed by", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Written by", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Arranged by", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Produced by", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Nhạc sĩ", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Sáng tác", StringComparison.OrdinalIgnoreCase) ||
+                        line.Text.StartsWith("Lời:", StringComparison.OrdinalIgnoreCase));
+
+                    if (lines.Count > 0)
+                    {
+                        return new SongLyrics
+                        {
+                            Title = title,
+                            Artist = artist,
+                            IsInstrumental = false,
+                            Lines = lines
+                        };
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Diag.Log($"[LyricsService] Kugou fetch failed for '{artist} - {title}': {ex.Message}");
+        }
+
+        return null;
     }
 
     private static SongLyrics ParseLrclibResponse(LrclibResponse data, TimeSpan duration)
@@ -298,19 +447,6 @@ public sealed class LyricsService
         if (!string.IsNullOrWhiteSpace(data.SyncedLyrics))
         {
             lyrics.Lines = ParseLrc(data.SyncedLyrics);
-        }
-        else if (!string.IsNullOrWhiteSpace(data.PlainLyrics))
-        {
-            var plainLines = data.PlainLyrics.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (plainLines.Length > 0)
-            {
-                double totalSec = duration > TimeSpan.Zero ? duration.TotalSeconds : (data.Duration > 0 ? data.Duration : plainLines.Length * 4.0);
-                double intervalSec = totalSec / plainLines.Length;
-                for (int i = 0; i < plainLines.Length; i++)
-                {
-                    lyrics.Lines.Add(new LyricLine(TimeSpan.FromSeconds(i * intervalSec), plainLines[i]));
-                }
-            }
         }
 
         return lyrics;

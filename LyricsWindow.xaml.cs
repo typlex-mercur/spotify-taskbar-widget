@@ -57,11 +57,81 @@ public partial class LyricsWindow : Window
         double baseFontSize = _settings.LyricsFontSize > 0 ? _settings.LyricsFontSize : 11.5;
         ApplyFontSize(baseFontSize);
 
-        Root.Opacity = Math.Clamp(_settings.Opacity, 0.2, 1.0);
+        if (!_isFadingOut)
+            Root.Opacity = TargetOpacity;
+
         if (_hwnd != IntPtr.Zero)
         {
             Interop.EnsureTopmost(_hwnd);
         }
+    }
+
+    private double TargetOpacity => Math.Clamp(_settings.Opacity, 0.2, 1.0);
+    private bool _isFadingOut;
+    public bool IsFadingOut => _isFadingOut;
+
+    public void FadeInAndShow(int durationMs = 240)
+    {
+        _isFadingOut = false;
+        Root.BeginAnimation(UIElement.OpacityProperty, null);
+        WindowShift.BeginAnimation(TranslateTransform.YProperty, null);
+
+        double target = TargetOpacity;
+        if (Visibility != Visibility.Visible)
+        {
+            Root.Opacity = 0;
+            WindowShift.Y = 5;
+            Visibility = Visibility.Visible;
+        }
+
+        var fadeIn = new DoubleAnimation(target, TimeSpan.FromMilliseconds(durationMs)) { EasingFunction = LyricEase };
+        var slideIn = new DoubleAnimation(0, TimeSpan.FromMilliseconds(durationMs)) { EasingFunction = LyricEase };
+
+        fadeIn.Completed += (_, _) =>
+        {
+            Root.BeginAnimation(UIElement.OpacityProperty, null);
+            WindowShift.BeginAnimation(TranslateTransform.YProperty, null);
+            Root.Opacity = target;
+            WindowShift.Y = 0;
+        };
+
+        Root.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        WindowShift.BeginAnimation(TranslateTransform.YProperty, slideIn);
+    }
+
+    public void FadeOutAndHide(int durationMs = 200)
+    {
+        if (Visibility != Visibility.Visible || _isFadingOut) return;
+        _isFadingOut = true;
+
+        var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(durationMs)) { EasingFunction = LyricEase };
+        var slideOut = new DoubleAnimation(-5, TimeSpan.FromMilliseconds(durationMs)) { EasingFunction = LyricEase };
+
+        fadeOut.Completed += (_, _) =>
+        {
+            if (_isFadingOut)
+            {
+                _isFadingOut = false;
+                Hide();
+                Root.BeginAnimation(UIElement.OpacityProperty, null);
+                WindowShift.BeginAnimation(TranslateTransform.YProperty, null);
+                Root.Opacity = TargetOpacity;
+                WindowShift.Y = 0;
+            }
+        };
+
+        Root.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        WindowShift.BeginAnimation(TranslateTransform.YProperty, slideOut);
+    }
+
+    public void HideImmediate()
+    {
+        _isFadingOut = false;
+        Root.BeginAnimation(UIElement.OpacityProperty, null);
+        WindowShift.BeginAnimation(TranslateTransform.YProperty, null);
+        Root.Opacity = TargetOpacity;
+        WindowShift.Y = 0;
+        Hide();
     }
 
     private double _baseFontSize = 11.5;
@@ -129,8 +199,8 @@ public partial class LyricsWindow : Window
         Interop.ClipWindowBottom(_hwnd, widthPx, heightPx, clipBottomPx);
         Interop.EnsureTopmost(_hwnd);
 
-        if (Visibility != Visibility.Visible)
-            Visibility = Visibility.Visible;
+        if (Visibility != Visibility.Visible || _isFadingOut)
+            FadeInAndShow();
     }
 
     private int _activeLayer = 0;

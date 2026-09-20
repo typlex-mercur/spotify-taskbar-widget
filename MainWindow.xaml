@@ -225,64 +225,36 @@
             ContextMenuOpening="Root_ContextMenuOpening">
         <Border.ContextMenu>
             <ContextMenu Closed="ContextMenu_Closed">
-                <MenuItem x:Name="MoveMenu" Header="Mover widget" IsCheckable="True" Click="MoveMode_Click"
-                          ToolTip="Arrasta o widget para onde quiseres; desmarca para bloquear nessa posição"/>
-                <MenuItem x:Name="ResetPosMenu" Header="Repor posição automática" Click="ResetPos_Click"/>
+                <MenuItem x:Name="MoveMenu" Header="Move / Resize" IsCheckable="True" Click="MoveMode_Click"
+                          ToolTip="Drag to move or drag edges to resize width; untick to lock"/>
+                <MenuItem x:Name="ResetPosMenu" Header="Reset position &amp; size" Click="ResetPos_Click"/>
                 <MenuItem x:Name="MonitorMenu" Header="Monitor"/>
-                <MenuItem x:Name="SizeMenuItem" Header="Tamanho">
-                    <MenuItem x:Name="SizeSmall" Header="Pequeno" IsCheckable="True" Click="Size_Click" Tag="0.8"/>
-                    <MenuItem x:Name="SizeNormal" Header="Normal" IsCheckable="True" Click="Size_Click" Tag="1.0"/>
-                    <MenuItem x:Name="SizeLarge" Header="Grande" IsCheckable="True" Click="Size_Click" Tag="1.1"/>
-                </MenuItem>
-                <MenuItem x:Name="OpacityMenuItem" Header="Brilho" StaysOpenOnClick="True">
-                    <!-- Slider contínuo (pedido da comunidade OLED); mínimo de 20%
-                         para o widget nunca ficar invisível e inalcançável -->
-                    <MenuItem x:Name="OpacitySliderItem" StaysOpenOnClick="True">
-                        <MenuItem.Header>
-                            <StackPanel Orientation="Horizontal">
-                                <Slider x:Name="OpacitySlider" Style="{StaticResource SpotifySlider}" Width="110"
-                                        Minimum="20" Maximum="100" SmallChange="5" LargeChange="10"
-                                        IsMoveToPointEnabled="True" VerticalAlignment="Center"
-                                        ValueChanged="OpacitySlider_ValueChanged"
-                                        MouseWheel="Opacity_MouseWheel"/>
-                                <TextBlock x:Name="OpacityValueText" Text="100%" Foreground="White"
-                                           Margin="8,0,0,0" Width="36" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </MenuItem.Header>
+                <Separator/>
+                <MenuItem x:Name="LyricsUnifiedMenu" Header="1 Window (Combined)" IsCheckable="True" Click="LyricsUnified_Click"/>
+                <MenuItem x:Name="LyricsSeparateMenu" Header="2 Windows (Separate)" IsCheckable="True" Click="LyricsSeparate_Click"/>
+                <Separator/>
+                <MenuItem x:Name="LyricsMenuItem" Header="Lyrics">
+                    <MenuItem x:Name="ShowLyricsMenu" Header="Show lyrics" IsCheckable="True" Click="ShowLyrics_Click"/>
+                    <MenuItem x:Name="LyricsAlignMenu" Header="Alignment">
+                        <MenuItem x:Name="LyricsAlignLeftMenu" Header="Left" IsCheckable="True" Click="LyricsAlign_Click" Tag="Left"/>
+                        <MenuItem x:Name="LyricsAlignCenterMenu" Header="Center" IsCheckable="True" Click="LyricsAlign_Click" Tag="Center"/>
+                        <MenuItem x:Name="LyricsAlignRightMenu" Header="Right" IsCheckable="True" Click="LyricsAlign_Click" Tag="Right"/>
                     </MenuItem>
                 </MenuItem>
-                <MenuItem x:Name="ButtonsMenuItem" Header="Botões">
-                    <MenuItem x:Name="BtnPlayMenu" Header="Reproduzir/Pausar" IsCheckable="True" Click="Buttons_Click"/>
-                    <MenuItem x:Name="BtnLikeMenu" Header="Adicionar aos favoritos (+)" IsCheckable="True" Click="Buttons_Click"/>
-                    <MenuItem x:Name="BtnShuffleMenu" Header="Modo aleatório" IsCheckable="True" Click="Buttons_Click"/>
-                    <MenuItem x:Name="BtnPrevMenu" Header="Anterior" IsCheckable="True" Click="Buttons_Click"/>
-                    <MenuItem x:Name="BtnNextMenu" Header="Seguinte" IsCheckable="True" Click="Buttons_Click"/>
-                    <MenuItem x:Name="BtnRepeatMenu" Header="Repetição" IsCheckable="True" Click="Buttons_Click"/>
+                <MenuItem x:Name="ButtonsMenuItem" Header="Buttons">
+                    <MenuItem x:Name="BtnPlayMenu" Header="Play/Pause" IsCheckable="True" Click="Buttons_Click"/>
+                    <MenuItem x:Name="BtnLikeMenu" Header="Favorite (+)" IsCheckable="True" Click="Buttons_Click"/>
+                    <MenuItem x:Name="BtnShuffleMenu" Header="Shuffle" IsCheckable="True" Click="Buttons_Click"/>
+                    <MenuItem x:Name="BtnPrevMenu" Header="Previous" IsCheckable="True" Click="Buttons_Click"/>
+                    <MenuItem x:Name="BtnNextMenu" Header="Next" IsCheckable="True" Click="Buttons_Click"/>
+                    <MenuItem x:Name="BtnRepeatMenu" Header="Repeat" IsCheckable="True" Click="Buttons_Click"/>
                     <MenuItem x:Name="BtnVolumeMenu" Header="Volume" IsCheckable="True" Click="Buttons_Click"/>
                 </MenuItem>
-                <MenuItem x:Name="ProgressMenu" Header="Barra de progresso" IsCheckable="True" Click="Progress_MenuClick"/>
-                <MenuItem x:Name="ScrollOnceMenu" Header="Deslizar título só uma vez" IsCheckable="True" Click="ScrollOnce_Click"/>
-                <MenuItem x:Name="LyricsMenuItem" Header="Letras (Lyrics)">
-                    <MenuItem x:Name="ShowLyricsMenu" Header="Mostrar letras na barra" IsCheckable="True" Click="ShowLyrics_Click"/>
-                    <Separator/>
-                    <MenuItem x:Name="LyricsUnifiedMenu" Header="1 Janela (Combinada no Player)" IsCheckable="True" Click="LyricsUnified_Click"/>
-                    <MenuItem x:Name="LyricsSeparateMenu" Header="2 Janelas (Separada na barra)" IsCheckable="True" Click="LyricsSeparate_Click"/>
-                    <Separator/>
-                    <MenuItem x:Name="LyricsAlignMenu" Header="Alinhamento">
-                        <MenuItem x:Name="LyricsAlignLeftMenu" Header="Esquerda" IsCheckable="True" Click="LyricsAlign_Click" Tag="Left"/>
-                        <MenuItem x:Name="LyricsAlignCenterMenu" Header="Centro" IsCheckable="True" Click="LyricsAlign_Click" Tag="Center"/>
-                        <MenuItem x:Name="LyricsAlignRightMenu" Header="Direita" IsCheckable="True" Click="LyricsAlign_Click" Tag="Right"/>
-                    </MenuItem>
-                </MenuItem>
-                <MenuItem x:Name="LauncherMenu" Header="Mostrar botão para abrir o Spotify" IsCheckable="True"
-                          Click="Launcher_Click"
-                          ToolTip="Com o Spotify fechado, mostra um botão para o abrir em vez de esconder o widget"/>
+                <MenuItem x:Name="ProgressMenu" Header="Progress bar" IsCheckable="True" Click="Progress_MenuClick"/>
                 <Separator/>
-                <MenuItem x:Name="AutoStartMenu" Header="Iniciar com o Windows" IsCheckable="True" Click="AutoStart_Click"/>
-                <MenuItem x:Name="OpenSpotifyMenu" Header="Abrir Spotify" Click="OpenSpotify_Click"/>
-                <MenuItem x:Name="UpdateMenu" Header="Procurar atualizações" Click="Update_Click"/>
+                <MenuItem x:Name="AutoStartMenu" Header="Start with Windows" IsCheckable="True" Click="AutoStart_Click"/>
                 <Separator/>
-                <MenuItem x:Name="ExitMenu" Header="Sair" Click="Exit_Click"/>
+                <MenuItem x:Name="ExitMenu" Header="Quit" Click="Exit_Click"/>
             </ContextMenu>
         </Border.ContextMenu>
 
@@ -325,15 +297,19 @@
                 </Border>
 
                 <!-- Título e artista (cores do Spotify: branco / #B3B3B3) -->
-                <StackPanel x:Name="TextStack" VerticalAlignment="Center" Margin="9,0,6,0" Width="150">
+                <Grid x:Name="TextStack" VerticalAlignment="Center" Margin="9,0,6,0" Width="150">
                     <!-- Modo Padrão: Título + Artista -->
-                    <StackPanel x:Name="StandardTextPanel">
+                    <StackPanel x:Name="StandardTextPanel" VerticalAlignment="Center">
+                        <StackPanel.RenderTransform>
+                            <TranslateTransform x:Name="StandardTextShift" X="0" Y="0"/>
+                        </StackPanel.RenderTransform>
                         <!-- Canvas: mede o filho com espaço infinito, por isso o título
                              renderiza SEMPRE completo (a Grid cortava-o à largura da
                              célula e o marquee deslizava um texto já truncado) -->
                         <Canvas x:Name="TitleClip" ClipToBounds="True" Height="16">
                             <TextBlock x:Name="TitleText" Text="Spotify" Foreground="White"
                                        FontWeight="SemiBold" FontSize="12"
+                                       TextOptions.TextFormattingMode="Ideal"
                                        Canvas.Left="0" Canvas.Top="0">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="TitleShift"/>
@@ -345,30 +321,45 @@
                     </StackPanel>
 
                     <!-- Modo Combinado (Unified): Linha 1 = Título • Artista; Linha 2 = Lời bài hát cuộn đồng bộ -->
-                    <StackPanel x:Name="UnifiedTextPanel" Visibility="Collapsed">
-                        <Canvas x:Name="UnifiedTitleClip" ClipToBounds="True" Height="15">
-                            <TextBlock x:Name="UnifiedInfoText" Text="Spotify" Foreground="#B3B3B3"
-                                       FontWeight="Normal" FontSize="10.5"
+                    <StackPanel x:Name="UnifiedTextPanel" Visibility="Collapsed" VerticalAlignment="Center">
+                        <StackPanel.RenderTransform>
+                            <TranslateTransform x:Name="UnifiedTextShift" X="0" Y="0"/>
+                        </StackPanel.RenderTransform>
+                        <Canvas x:Name="UnifiedTitleClip" ClipToBounds="True" Height="15" Margin="0,0,0,1">
+                            <TextBlock x:Name="UnifiedInfoText" FontSize="10.5"
+                                       TextOptions.TextFormattingMode="Ideal"
                                        Canvas.Left="0" Canvas.Top="0">
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="UnifiedInfoShift"/>
                                 </TextBlock.RenderTransform>
                             </TextBlock>
                         </Canvas>
-                        <Canvas x:Name="UnifiedLyricClip" ClipToBounds="True" Height="17">
+                        <Canvas x:Name="UnifiedLyricClip" ClipToBounds="True" Height="18">
                             <TextBlock x:Name="UnifiedLyricText" Text="♪" Foreground="White"
                                        FontWeight="SemiBold" FontSize="11.5"
-                                       Canvas.Left="0" Canvas.Top="0">
+                                       TextOptions.TextFormattingMode="Ideal"
+                                       Canvas.Left="0" Canvas.Top="0" Opacity="1">
                                 <TextBlock.RenderTransform>
-                                    <TranslateTransform x:Name="UnifiedLyricShift"/>
+                                    <TranslateTransform x:Name="UnifiedLyricShift" X="0" Y="0"/>
                                 </TextBlock.RenderTransform>
                                 <TextBlock.Effect>
-                                    <DropShadowEffect Color="#000000" BlurRadius="4" ShadowDepth="1" Opacity="0.8" Direction="270"/>
+                                    <DropShadowEffect Color="#000000" BlurRadius="4" ShadowDepth="1" Opacity="0.85" Direction="270"/>
+                                </TextBlock.Effect>
+                            </TextBlock>
+                            <TextBlock x:Name="UnifiedLyricTextTop" Text="" Foreground="White"
+                                       FontWeight="SemiBold" FontSize="11.5"
+                                       TextOptions.TextFormattingMode="Ideal"
+                                       Canvas.Left="0" Canvas.Top="0" Opacity="0">
+                                <TextBlock.RenderTransform>
+                                    <TranslateTransform x:Name="UnifiedLyricShiftTop" X="0" Y="0"/>
+                                </TextBlock.RenderTransform>
+                                <TextBlock.Effect>
+                                    <DropShadowEffect Color="#000000" BlurRadius="4" ShadowDepth="1" Opacity="0.85" Direction="270"/>
                                 </TextBlock.Effect>
                             </TextBlock>
                         </Canvas>
                     </StackPanel>
-                </StackPanel>
+                </Grid>
 
                 <!-- Favoritos: ⊕ cinzento / ✓ verde em círculo, ícones do Spotify -->
                 <Button x:Name="LikeButton" Style="{StaticResource IconButton}"

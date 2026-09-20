@@ -20,6 +20,12 @@ public class WidgetSettings
     /// Separate from ManualX so switching alignment restores the correct position.</summary>
     public Dictionary<int, double> ManualXLeft { get; set; } = new();
 
+    /// <summary>Khoảng cách lề (GapLeft, GapRight) khi ở Taskbar Center, theo từng monitor</summary>
+    public Dictionary<int, SlotMargins> MarginsCenter { get; set; } = new();
+
+    /// <summary>Khoảng cách lề (GapLeft, GapRight) khi ở Taskbar Left, theo từng monitor</summary>
+    public Dictionary<int, SlotMargins> MarginsLeft { get; set; } = new();
+
     /// <summary>Escala do widget (0.8 = pequeno, 1.0 = normal, 1.1 = grande).</summary>
     public double Scale { get; set; } = 1.0;
 
@@ -35,14 +41,14 @@ public class WidgetSettings
     public List<int> Monitors { get; set; } = new();
 
     /// <summary>Com o Spotify fechado: true mostra um botão "Abrir Spotify"; false esconde o widget.</summary>
-    public bool ShowLauncher { get; set; } = false;
+    public bool ShowLauncher { get; set; } = true;
 
     /// <summary>Barra de progresso da música no fundo do widget (clique para saltar).</summary>
     public bool ShowProgress { get; set; } = true;
 
     /// <summary>Títulos longos: true = deslizam UMA vez no início da faixa e ficam
     /// quietos; false (padrão) = deslize contínuo. Pedido da comunidade (#14).</summary>
-    public bool ScrollTitleOnce { get; set; } = false;
+    public bool ScrollTitleOnce { get; set; } = true;
 
     /// <summary>Mostrar letras sincronizadas (lyrics) na barra de tarefas.</summary>
     public bool ShowLyrics { get; set; } = true;
@@ -93,6 +99,8 @@ public class WidgetSettings
             if (s.Monitors is null) s.Monitors = new List<int>();
             if (s.ManualX is null) s.ManualX = new Dictionary<int, double>();
             if (s.ManualXLeft is null) s.ManualXLeft = new Dictionary<int, double>();
+            if (s.MarginsCenter is null) s.MarginsCenter = new Dictionary<int, SlotMargins>();
+            if (s.MarginsLeft is null) s.MarginsLeft = new Dictionary<int, SlotMargins>();
         }
         catch
         {
@@ -132,4 +140,12 @@ public class WidgetSettings
         catch { }
         Changed?.Invoke();
     }
+}
+
+public class SlotMargins
+{
+    public double GapLeft { get; set; } = 16;
+    public double GapRight { get; set; } = 16;
+    public bool IsRightSlot { get; set; } = false;
+    public double CustomTextWidth { get; set; } = 0;
 }

@@ -49,12 +49,7 @@ public partial class MainWindow : Window
     private Action? _mediaTimeline;
 
     private static readonly List<MainWindow> Instances = new();
-    private static bool _updateCheckStarted;
     private static bool _recreatePending;
-
-    // Atualização disponível (partilhada por todas as janelas): a verificação
-    // silenciosa guarda-a aqui e cada janela realça o item do menu
-    private static (Version Version, string Url)? _pendingUpdate;
 
     /// <summary>True se existe pelo menos uma janela de widget viva.</summary>
     public static bool HasWindows => Instances.Count > 0;
@@ -161,7 +156,7 @@ public partial class MainWindow : Window
     private IntPtr _anchorsTray;
     private bool _lastKnownLeftAligned;
 
-    private double MaxTextWidth => (_settings.ShowLyrics && _settings.UnifiedLyrics) ? 260 : 150;
+    private double MaxTextWidth => (_settings.ShowLyrics && _settings.UnifiedLyrics) ? 380 : 150;
     private const double MinTextWidth = 60;
 
     public MainWindow()
@@ -187,11 +182,6 @@ public partial class MainWindow : Window
         MoveMenu.ToolTip = L.MoveWidgetTip;
         ResetPosMenu.Header = L.ResetAutoPos;
         MonitorMenu.Header = L.MonitorMenu;
-        SizeMenuItem.Header = L.SizeMenu;
-        OpacityMenuItem.Header = L.OpacityMenu;
-        SizeSmall.Header = L.SizeSmall;
-        SizeNormal.Header = L.SizeNormal;
-        SizeLarge.Header = L.SizeLarge;
         ButtonsMenuItem.Header = L.ButtonsMenu;
         BtnPlayMenu.Header = L.BtnPlay;
         BtnLikeMenu.Header = L.BtnLike;
@@ -201,7 +191,6 @@ public partial class MainWindow : Window
         BtnRepeatMenu.Header = L.BtnRepeat;
         BtnVolumeMenu.Header = L.BtnVolume;
         ProgressMenu.Header = L.ProgressBar;
-        ScrollOnceMenu.Header = L.ScrollTitleOnce;
         LyricsMenuItem.Header = L.LyricsMenu;
         ShowLyricsMenu.Header = L.ShowLyrics;
         LyricsUnifiedMenu.Header = L.LyricsModeUnified;
@@ -210,11 +199,7 @@ public partial class MainWindow : Window
         LyricsAlignLeftMenu.Header = L.LyricsAlignLeft;
         LyricsAlignCenterMenu.Header = L.LyricsAlignCenter;
         LyricsAlignRightMenu.Header = L.LyricsAlignRight;
-        LauncherMenu.Header = L.ShowLauncher;
-        LauncherMenu.ToolTip = L.ShowLauncherTip;
         AutoStartMenu.Header = L.AutoStart;
-        OpenSpotifyMenu.Header = L.OpenSpotify;
-        UpdateMenu.Header = L.CheckUpdates;
         ExitMenu.Header = L.Exit;
 
         PrevButton.ToolTip = L.TipPrev;
@@ -229,15 +214,11 @@ public partial class MainWindow : Window
         ArtistText.Text = L.NothingPlaying;
     }
 
-    private bool _uiReady;
-
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
-        _uiReady = true; // InitializeComponent terminou: elementos nomeados existem
         ApplyLanguage();
         if (PackagedApp.IsPackaged)
         {
-            UpdateMenu.Visibility = Visibility.Collapsed; // a Store trata das atualizações
             _ = InitStartupTaskStateAsync();
         }
         else
@@ -336,13 +317,6 @@ public partial class MainWindow : Window
 
         var mediaInit = _media.InitializeAsync();
 
-        if (!PackagedApp.IsPackaged && !_updateCheckStarted)
-        {
-            _updateCheckStarted = true; // com várias janelas, só uma verifica
-            _ = CheckUpdatesQuietlyAsync();
-        }
-        RefreshUpdateMenu(); // se já se sabe de uma versão nova, realçar já
-
         await mediaInit;
         if (_closed)
             return; // fechada durante o await (sync de monitores / restart do Explorer)
@@ -353,12 +327,10 @@ public partial class MainWindow : Window
     /// escala) — chamado no arranque e sempre que qualquer janela grava.</summary>
     private void ApplySettingsUi()
     {
-        LauncherMenu.IsChecked = _settings.ShowLauncher;
         ProgressMenu.IsChecked = _settings.ShowProgress;
-        ScrollOnceMenu.IsChecked = _settings.ScrollTitleOnce;
         ShowLyricsMenu.IsChecked = _settings.ShowLyrics;
-        LyricsUnifiedMenu.IsChecked = _settings.UnifiedLyrics;
-        LyricsSeparateMenu.IsChecked = !_settings.UnifiedLyrics;
+        LyricsUnifiedMenu.IsChecked = _settings.ShowLyrics && _settings.UnifiedLyrics;
+        LyricsSeparateMenu.IsChecked = _settings.ShowLyrics && !_settings.UnifiedLyrics;
         LyricsAlignLeftMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Left", StringComparison.OrdinalIgnoreCase);
         LyricsAlignCenterMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Center", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(_settings.LyricsAlignment);
         LyricsAlignRightMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Right", StringComparison.OrdinalIgnoreCase);
@@ -371,9 +343,7 @@ public partial class MainWindow : Window
         BtnRepeatMenu.IsChecked = _settings.ShowRepeat;
         BtnVolumeMenu.IsChecked = _settings.ShowVolume;
         ApplyScale();
-        UpdateSizeChecks();
         ApplyOpacity();
-        UpdateOpacityChecks();
     }
 
     private void OnSettingsChanged()
@@ -623,73 +593,132 @@ public partial class MainWindow : Window
         // widget aterrava a meio do ecrã.
         double windowScale = Interop.GetDpiForWindow(_hwnd) / 96.0; // px por DIP, no monitor atual
 
+        if (_dragging)
+            return;
+
         int topPx = r.Bottom - barBandPx + (barBandPx - winHeight) / 2;
 
-        bool rightAnchored = false;
         int rightAnchorLeftLimitPx = r.Left + 12;
         int leftPx, rightLimitPx;
-        var manualDict = isLeft ? _settings.ManualXLeft : _settings.ManualX;
-        if (manualDict.TryGetValue(TrayIndex, out double manualX))
+        bool isCustomSlot = false;
+        int availPx;
+
+        var marginsDict = isLeft ? _settings.MarginsLeft : _settings.MarginsCenter;
+        if (!_settings.AutoPosition && marginsDict.TryGetValue(TrayIndex, out var sm))
         {
-            // Posição manual DESTA barra (por monitor — arrastar um widget não
-            // pode arrastar os dos outros ecrãs)
-            leftPx = (int)Math.Max(r.Left + 4, Math.Min(manualX, r.Right - winWidth - 4));
-            rightLimitPx = r.Right - 4;
-        }
-        else if (!isLeft)
-        {
-            // Numa barra centrada o botão Iniciar existe sempre — âncora nula
-            // significa que a leitura ainda não chegou ou falhou.
-            if (!startLeftPx.HasValue && Visibility == Visibility.Visible)
+            isCustomSlot = true;
+            int slotLeft, slotRight;
+            if (!isLeft)
             {
-                // Já estamos bem posicionados: FICAR QUIETO até as âncoras
-                // voltarem — esconder e reaparecer na borda esquerda (por cima
-                // do botão do tempo) era exatamente o salto reportado
-                leftPx = w.Left;
-                rightLimitPx = r.Right - 4;
-            }
-            else if (!startLeftPx.HasValue)
-            {
-                // Ainda sem posição (arranque / primeiro reveal): esperar em
-                // vez de posicionar às cegas; após o limite, fallback à esquerda
-                if (_anchorsMissingSince == DateTime.MinValue)
-                    _anchorsMissingSince = DateTime.UtcNow;
-                if (DateTime.UtcNow - _anchorsMissingSince < TimeSpan.FromSeconds(4))
+                if (sm.IsRightSlot)
                 {
-                    HideWidget();
-                    return;
+                    int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                    slotLeft = taskEndPx.HasValue ? (int)taskEndPx.Value + 8 : r.Left + (r.Right - r.Left) / 2 + 100;
+                    slotRight = (notifyLeftPx ?? (r.Right - 220)) - 8;
                 }
-                leftPx = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
-                rightLimitPx = r.Right - 4;
+                else
+                {
+                    slotLeft = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
+                    slotRight = startLeftPx.HasValue ? (int)startLeftPx.Value - 8 : r.Left + (r.Right - r.Left) / 2 - 8;
+                }
             }
             else
             {
-                _anchorsMissingSince = DateTime.MinValue;
-                // Ícones centrados (em qualquer barra/monitor): o espaço livre
-                // está à esquerda — alinhar a seguir ao botão de widgets/tempo;
-                // sem ele, à borda esquerda. Nunca invadir o botão Iniciar.
-                leftPx = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
-                rightLimitPx = (int)startLeftPx.Value - 8;
+                int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                slotLeft = taskEndPx.HasValue ? (int)taskEndPx.Value + 8 : r.Left + 300;
+                slotRight = (notifyLeftPx ?? (r.Right - 220)) - 8;
             }
+
+            leftPx = slotLeft + (int)sm.GapLeft;
+            rightLimitPx = slotRight - (int)sm.GapRight;
+            availPx = rightLimitPx - leftPx;
         }
         else
         {
-            // Ícones alinhados à esquerda: o espaço vazio está à direita —
-            // encostar antes dos ícones do sistema/relógio, sem nunca tapar
-            // a fila de ícones das apps
-            rightAnchored = true;
-            int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
-            rightLimitPx = notifyLeftPx ?? (r.Right - 220);
-            rightLimitPx -= 8;
-            if (taskEndPx.HasValue)
-                rightAnchorLeftLimitPx = (int)taskEndPx.Value + 8;
-            leftPx = Math.Max(rightAnchorLeftLimitPx, rightLimitPx - winWidth);
+            var manualDict = isLeft ? _settings.ManualXLeft : _settings.ManualX;
+            if (!_settings.AutoPosition && manualDict.TryGetValue(TrayIndex, out double manualX))
+            {
+                if (!isLeft)
+                {
+                    if (startLeftPx.HasValue && manualX < startLeftPx.Value)
+                    {
+                        // Widget posicionado à esquerda dos ícones centrados (entre tempo/widgets e Iniciar)
+                        rightLimitPx = (int)startLeftPx.Value - 8;
+                        leftPx = (int)Math.Max(r.Left + 4, Math.Min(manualX, rightLimitPx - winWidth));
+                    }
+                    else
+                    {
+                        // Widget posicionado à direita dos ícones centrados
+                        int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                        rightLimitPx = (notifyLeftPx ?? (r.Right - 220)) - 8;
+                        int minLeft = taskEndPx.HasValue ? (int)taskEndPx.Value + 8 : r.Left + 4;
+                        leftPx = (int)Math.Max(minLeft, Math.Min(manualX, rightLimitPx - winWidth));
+                    }
+                }
+                else
+                {
+                    int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                    rightLimitPx = (notifyLeftPx ?? (r.Right - 220)) - 8;
+                    int minLeft = taskEndPx.HasValue ? (int)taskEndPx.Value + 8 : r.Left + 4;
+                    leftPx = (int)Math.Max(minLeft, Math.Min(manualX, rightLimitPx - winWidth));
+                }
+                availPx = rightLimitPx - leftPx;
+            }
+            else if (!isLeft)
+            {
+                // Numa barra centrada o botão Iniciar existe sempre — âncora nula
+                // significa que a leitura ainda não chegou ou falhou.
+                if (!startLeftPx.HasValue && Visibility == Visibility.Visible)
+                {
+                    // Já estamos bem posicionados: FICAR QUIETO até as âncoras
+                    // voltarem — esconder e reaparecer na borda esquerda (por cima
+                    // do botão do tempo) era exatamente o salto reportado
+                    leftPx = w.Left;
+                    rightLimitPx = r.Right - 4;
+                }
+                else if (!startLeftPx.HasValue)
+                {
+                    // Ainda sem posição (arranque / primeiro reveal): esperar em
+                    // vez de posicionar às cegas; após o limite, fallback à esquerda
+                    if (_anchorsMissingSince == DateTime.MinValue)
+                        _anchorsMissingSince = DateTime.UtcNow;
+                    if (DateTime.UtcNow - _anchorsMissingSince < TimeSpan.FromSeconds(4))
+                    {
+                        HideWidget();
+                        return;
+                    }
+                    leftPx = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
+                    rightLimitPx = r.Right - 4;
+                }
+                else
+                {
+                    _anchorsMissingSince = DateTime.MinValue;
+                    // Ícones centrados (em qualquer barra/monitor): o espaço livre
+                    // está à esquerda — alinhar a seguir ao botão de widgets/tempo;
+                    // sem ele, à borda esquerda. Nunca invadir o botão Iniciar.
+                    leftPx = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
+                    rightLimitPx = (int)startLeftPx.Value - 8;
+                }
+                availPx = rightLimitPx - leftPx;
+            }
+            else
+            {
+                // Ícones alinhados à esquerda: o espaço vazio está à direita —
+                // encostar antes dos ícones do sistema/relógio, sem nunca tapar
+                // a fila de ícones das apps
+                int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                rightLimitPx = notifyLeftPx ?? (r.Right - 220);
+                rightLimitPx -= 8;
+                if (taskEndPx.HasValue)
+                    rightAnchorLeftLimitPx = (int)taskEndPx.Value + 8;
+                leftPx = Math.Max(rightAnchorLeftLimitPx, rightLimitPx - winWidth);
+                availPx = rightLimitPx - rightAnchorLeftLimitPx;
+            }
         }
 
         if (_spotifyPresent)
         {
-            int availPx = rightAnchored ? rightLimitPx - rightAnchorLeftLimitPx : rightLimitPx - leftPx;
-            if (!ApplyResponsiveLayout(availPx / windowScale))
+            if (!ApplyResponsiveLayout(availPx / windowScale, isCustomSlot))
             {
                 // Numa barra lotada nem a versão mínima cabe: esconder em vez
                 // de transbordar para cima do relógio/ícones (issue #10)
@@ -736,9 +765,13 @@ public partial class MainWindow : Window
         ReassertTopmost();
 
         // Posicionamento do widget de letras (Lyrics) no espaço livre à direita da barra
-        if (!_settings.ShowLyrics || !_spotifyPresent || hide || _settings.UnifiedLyrics)
+        if (!_spotifyPresent || hide)
         {
-            _lyricsWindow?.Hide();
+            _lyricsWindow?.HideImmediate();
+        }
+        else if (!_settings.ShowLyrics || _settings.UnifiedLyrics)
+        {
+            _lyricsWindow?.FadeOutAndHide();
         }
         else
         {
@@ -774,13 +807,13 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    _lyricsWindow?.Hide();
+                    _lyricsWindow?.FadeOutAndHide();
                 }
             }
             catch (Exception ex)
             {
                 Diag.Log($"[Lyrics Position] {ex}");
-                _lyricsWindow?.Hide();
+                _lyricsWindow?.FadeOutAndHide();
             }
         }
     }
@@ -792,7 +825,7 @@ public partial class MainWindow : Window
     /// divergirem (havia caminhos que deixavam popups órfãos a flutuar).</summary>
     private void HideWidget()
     {
-        _lyricsWindow?.Hide();
+        _lyricsWindow?.HideImmediate();
         VolumePopup.IsOpen = false;
         if (Root.ContextMenu is { IsOpen: true } menu)
             menu.IsOpen = false;
@@ -886,7 +919,7 @@ public partial class MainWindow : Window
     /// (volume → aleatório → favoritos → seguinte → anterior).
     /// Devolve false quando nem a versão mínima cabe no espaço dado.
     /// </summary>
-    private bool ApplyResponsiveLayout(double availableDip)
+    private bool ApplyResponsiveLayout(double availableDip, bool isCustomSlot = false)
     {
         double s = _settings.Scale;
         double avail = availableDip / s; // trabalhar em unidades pré-escala
@@ -897,19 +930,30 @@ public partial class MainWindow : Window
 
         // O play deixou de ser obrigatório: quem só quer o mostrador de "a
         // tocar agora" pode escondê-lo (pedido da comunidade)
-        double used = BasePart + MinTextWidth + (_settings.ShowPlay ? PlayBtn : 0);
-        if (avail < used)
+        double baseUsed = BasePart + (_settings.ShowPlay ? PlayBtn : 0);
+        if (avail < baseUsed + MinTextWidth)
             return false;
 
         bool prev = false, next = false, like = false, shuffle = false, repeat = false, volume = false;
+        double usedButtons = 0;
+
+        // Botões essenciais de reprodução
         Take(ref prev, _settings.ShowPrev);
         Take(ref next, _settings.ShowNext);
-        Take(ref like, _settings.ShowLike);
-        Take(ref shuffle, _settings.ShowShuffle);
-        Take(ref repeat, _settings.ShowRepeat);
-        Take(ref volume, _settings.ShowVolume);
 
-        double text = Math.Max(MinTextWidth, Math.Min(MaxTextWidth, MinTextWidth + (avail - used)));
+        // Se houver botões secundários, certificar que só entram se houver espaço confortável
+        // para o texto das letras (pelo menos 180 DIPs em modo Unified)
+        double minComfortableText = (_settings.ShowLyrics && _settings.UnifiedLyrics) ? 180 : MinTextWidth;
+        TakeComfortable(ref volume, _settings.ShowVolume);
+        TakeComfortable(ref like, _settings.ShowLike);
+        TakeComfortable(ref shuffle, _settings.ShowShuffle);
+        TakeComfortable(ref repeat, _settings.ShowRepeat);
+
+        // O texto ganha TODO o espaço restante até ao MaxTextWidth (380 DIPs) se automático,
+        // ou todo o espaço do slot se o utilizador definiu margens personalizadas
+        double text = isCustomSlot
+            ? Math.Max(MinTextWidth, avail - (baseUsed + usedButtons))
+            : Math.Max(MinTextWidth, Math.Min(MaxTextWidth, avail - (baseUsed + usedButtons)));
 
         SetVis(PlayPauseButton, _settings.ShowPlay);
         SetVis(PrevButton, prev);
@@ -922,15 +966,25 @@ public partial class MainWindow : Window
         {
             TextStack.Width = text;
             UpdateMarquee();
+            UpdateUnifiedInfoMarquee();
         }
         return true;
 
         void Take(ref bool flag, bool wanted)
         {
-            if (wanted && used + IconBtn <= avail)
+            if (wanted && baseUsed + usedButtons + IconBtn + MinTextWidth <= avail)
             {
                 flag = true;
-                used += IconBtn;
+                usedButtons += IconBtn;
+            }
+        }
+
+        void TakeComfortable(ref bool flag, bool wanted)
+        {
+            if (wanted && baseUsed + usedButtons + IconBtn + minComfortableText <= avail)
+            {
+                flag = true;
+                usedButtons += IconBtn;
             }
         }
 
@@ -1633,24 +1687,16 @@ public partial class MainWindow : Window
             double scrollSeconds = Math.Max(1.5, overflow / 25.0);
             double end = -(overflow + 12);
             var anim = new DoubleAnimationUsingKeyFrames();
-            double t = 2.5; // pausa inicial (ler o início)
+            Timeline.SetDesiredFrameRate(anim, 60);
+            double t = 2.0; // pausa inicial (ler o início)
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
             t += scrollSeconds;
             anim.KeyFrames.Add(new LinearDoubleKeyFrame(end, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
             t += 1.5; // pausa no fim (ler o resto)
             anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(end, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
-            if (_settings.ScrollTitleOnce)
-            {
-                // Uma vez: regressar ao início e ficar estático (#14)
-                t += 0.6;
-                anim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
-                // sem RepeatBehavior → corre 1x e o HoldEnd fixa em X=0
-            }
-            else
-            {
-                anim.RepeatBehavior = RepeatBehavior.Forever; // contínuo (padrão)
-            }
+            t += 0.8; // regressar ao início e ficar estático (chạy 1 lần duy nhất)
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
             anim.Duration = TimeSpan.FromSeconds(t);
             TitleShift.BeginAnimation(TranslateTransform.XProperty, anim);
         }
@@ -1706,38 +1752,41 @@ public partial class MainWindow : Window
         UpdateProgressUi();
     }
 
-    private void ScrollOnce_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.ScrollTitleOnce = ScrollOnceMenu.IsChecked;
-        _settings.Save();
-        _marqueeKey = ""; // forçar recalcular a animação com o novo modo
-        UpdateMarquee();
-    }
-
     private void ShowLyrics_Click(object sender, RoutedEventArgs e)
     {
+        bool oldShow = _settings.ShowLyrics;
         _settings.ShowLyrics = ShowLyricsMenu.IsChecked;
         _settings.Save();
-        UpdatePosition();
-        UpdateLyricsUi();
+        ApplySettingsUi();
+        if (oldShow != _settings.ShowLyrics && _settings.UnifiedLyrics)
+        {
+            AnimateLyricsModeSwitch(toUnified: _settings.ShowLyrics);
+        }
+        else
+        {
+            UpdatePosition();
+            UpdateLyricsUi();
+        }
     }
 
     private void LyricsUnified_Click(object sender, RoutedEventArgs e)
     {
+        if (_settings.UnifiedLyrics && _settings.ShowLyrics) return;
         _settings.UnifiedLyrics = true;
+        _settings.ShowLyrics = true;
         _settings.Save();
         ApplySettingsUi();
-        UpdatePosition();
-        UpdateLyricsUi();
+        AnimateLyricsModeSwitch(toUnified: true);
     }
 
     private void LyricsSeparate_Click(object sender, RoutedEventArgs e)
     {
+        if (!_settings.UnifiedLyrics && _settings.ShowLyrics) return;
         _settings.UnifiedLyrics = false;
+        _settings.ShowLyrics = true;
         _settings.Save();
         ApplySettingsUi();
-        UpdatePosition();
-        UpdateLyricsUi();
+        AnimateLyricsModeSwitch(toUnified: false);
     }
 
     private void LyricsAlign_Click(object sender, RoutedEventArgs e)
@@ -1756,7 +1805,7 @@ public partial class MainWindow : Window
         {
             _lyricsWindow = new LyricsWindow { TrayIndex = TrayIndex };
             _lyricsWindow.ApplySettings();
-            _lyricsWindow.Show();
+            new WindowInteropHelper(_lyricsWindow).EnsureHandle();
         }
     }
 
@@ -1798,6 +1847,133 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool _modeTransitioning;
+    private static readonly IEasingFunction ModeEase = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+    private void AnimateLyricsModeSwitch(bool toUnified)
+    {
+        _modeTransitioning = true;
+        const int OutMs = 180;
+        const int InMs = 240;
+
+        // Limpar animações anteriores para transição limpa
+        StandardTextPanel.BeginAnimation(UIElement.OpacityProperty, null);
+        StandardTextShift.BeginAnimation(TranslateTransform.YProperty, null);
+        UnifiedTextPanel.BeginAnimation(UIElement.OpacityProperty, null);
+        UnifiedTextShift.BeginAnimation(TranslateTransform.YProperty, null);
+
+        if (toUnified)
+        {
+            _lyricsWindow?.FadeOutAndHide(200);
+
+            // Pré-preencher o texto combinado antes de esbater para dentro
+            string t = TitleText.Text ?? "";
+            string a = ArtistText.Text ?? "";
+            _lastUnifiedTitle = t;
+            _lastUnifiedArtist = a;
+            SetUnifiedInfoText(t, a);
+
+            if (_currentLyrics == null)
+            {
+                SetUnifiedLyricLine(_isPlayingUi ? "♪" : "", 0, false, TimeSpan.Zero);
+            }
+            else if (_currentLyrics.IsInstrumental)
+            {
+                SetUnifiedLyricLine("♪ Instrumental", 0, false, TimeSpan.Zero);
+            }
+            else if (_currentLyrics.Lines.Count == 0)
+            {
+                SetUnifiedLyricLine(_isPlayingUi ? "♪" : "", 0, false, TimeSpan.Zero);
+            }
+            else
+            {
+                TimeSpan pos = _basePosition;
+                if (_isPlayingUi) pos += DateTime.UtcNow - _basePositionAt;
+                var lineInfo = _currentLyrics.GetLineInfoAt(pos);
+                string text = string.IsNullOrWhiteSpace(lineInfo.Text) ? "♪" : lineInfo.Text;
+                TimeSpan lineDuration = lineInfo.EndTime > lineInfo.StartTime ? (lineInfo.EndTime - lineInfo.StartTime) : TimeSpan.FromSeconds(4);
+                SetUnifiedLyricLine(text, lineInfo.Progress, lineInfo.HasMatch, lineDuration);
+            }
+
+            // Ambos os painéis visíveis durante o crossfade
+            StandardTextPanel.Visibility = Visibility.Visible;
+            UnifiedTextPanel.Visibility = Visibility.Visible;
+
+            UnifiedTextPanel.Opacity = 0;
+            UnifiedTextShift.Y = 6;
+
+            var outFade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(OutMs)) { EasingFunction = ModeEase };
+            var outSlide = new DoubleAnimation(-6, TimeSpan.FromMilliseconds(OutMs)) { EasingFunction = ModeEase };
+            outFade.Completed += (_, _) =>
+            {
+                StandardTextPanel.Visibility = Visibility.Collapsed;
+                StandardTextPanel.BeginAnimation(UIElement.OpacityProperty, null);
+                StandardTextShift.BeginAnimation(TranslateTransform.YProperty, null);
+                StandardTextPanel.Opacity = 1;
+                StandardTextShift.Y = 0;
+            };
+
+            var inFade = new DoubleAnimation(1, TimeSpan.FromMilliseconds(InMs)) { EasingFunction = ModeEase };
+            var inSlide = new DoubleAnimation(0, TimeSpan.FromMilliseconds(InMs)) { EasingFunction = ModeEase };
+            inFade.Completed += (_, _) =>
+            {
+                _modeTransitioning = false;
+                UnifiedTextPanel.BeginAnimation(UIElement.OpacityProperty, null);
+                UnifiedTextShift.BeginAnimation(TranslateTransform.YProperty, null);
+                UnifiedTextPanel.Opacity = 1;
+                UnifiedTextShift.Y = 0;
+                UpdateUnifiedInfoMarquee();
+            };
+
+            StandardTextPanel.BeginAnimation(UIElement.OpacityProperty, outFade);
+            StandardTextShift.BeginAnimation(TranslateTransform.YProperty, outSlide);
+
+            UnifiedTextPanel.BeginAnimation(UIElement.OpacityProperty, inFade);
+            UnifiedTextShift.BeginAnimation(TranslateTransform.YProperty, inSlide);
+        }
+        else
+        {
+            // Transição para modo separado (2 janelas)
+            StandardTextPanel.Visibility = Visibility.Visible;
+            UnifiedTextPanel.Visibility = Visibility.Visible;
+
+            StandardTextPanel.Opacity = 0;
+            StandardTextShift.Y = -6;
+
+            var outFade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(OutMs)) { EasingFunction = ModeEase };
+            var outSlide = new DoubleAnimation(6, TimeSpan.FromMilliseconds(OutMs)) { EasingFunction = ModeEase };
+            outFade.Completed += (_, _) =>
+            {
+                UnifiedTextPanel.Visibility = Visibility.Collapsed;
+                UnifiedTextPanel.BeginAnimation(UIElement.OpacityProperty, null);
+                UnifiedTextShift.BeginAnimation(TranslateTransform.YProperty, null);
+                UnifiedTextPanel.Opacity = 1;
+                UnifiedTextShift.Y = 0;
+            };
+
+            var inFade = new DoubleAnimation(1, TimeSpan.FromMilliseconds(InMs)) { EasingFunction = ModeEase };
+            var inSlide = new DoubleAnimation(0, TimeSpan.FromMilliseconds(InMs)) { EasingFunction = ModeEase };
+            inFade.Completed += (_, _) =>
+            {
+                _modeTransitioning = false;
+                StandardTextPanel.BeginAnimation(UIElement.OpacityProperty, null);
+                StandardTextShift.BeginAnimation(TranslateTransform.YProperty, null);
+                StandardTextPanel.Opacity = 1;
+                StandardTextShift.Y = 0;
+                UpdateMarquee();
+            };
+
+            UnifiedTextPanel.BeginAnimation(UIElement.OpacityProperty, outFade);
+            UnifiedTextShift.BeginAnimation(TranslateTransform.YProperty, outSlide);
+
+            StandardTextPanel.BeginAnimation(UIElement.OpacityProperty, inFade);
+            StandardTextShift.BeginAnimation(TranslateTransform.YProperty, inSlide);
+        }
+
+        UpdatePosition();
+        UpdateLyricsUi();
+    }
+
     private void UpdateLyricsUi()
     {
         try
@@ -1806,10 +1982,12 @@ public partial class MainWindow : Window
 
             if (!showLyrics)
             {
-                _lyricsWindow?.SetLyric("");
-                if (StandardTextPanel.Visibility != Visibility.Visible)
+                _lyricsWindow?.FadeOutAndHide();
+                if (!_modeTransitioning && StandardTextPanel.Visibility != Visibility.Visible)
                 {
                     StandardTextPanel.Visibility = Visibility.Visible;
+                    StandardTextPanel.Opacity = 1;
+                    StandardTextShift.Y = 0;
                     UnifiedTextPanel.Visibility = Visibility.Collapsed;
                     UpdateMarquee();
                 }
@@ -1819,37 +1997,43 @@ public partial class MainWindow : Window
             if (_settings.UnifiedLyrics)
             {
                 // Modo Combinado (1 Janela)
-                _lyricsWindow?.Hide();
+                _lyricsWindow?.FadeOutAndHide();
 
-                if (StandardTextPanel.Visibility != Visibility.Collapsed)
+                if (!_modeTransitioning && StandardTextPanel.Visibility != Visibility.Collapsed)
                 {
                     StandardTextPanel.Visibility = Visibility.Collapsed;
                     UnifiedTextPanel.Visibility = Visibility.Visible;
+                    UnifiedTextPanel.Opacity = 1;
+                    UnifiedTextShift.Y = 0;
                 }
 
-                // Linha 1: Título • Artista
+                // Linha 1: Título (branco) • Artista (cinzento suave)
                 string t = TitleText.Text ?? "";
                 string a = ArtistText.Text ?? "";
-                string infoStr = (string.IsNullOrWhiteSpace(a) || a == L.NothingPlaying)
-                    ? t
-                    : $"{t} • {a}";
-
-                if (UnifiedInfoText.Text != infoStr)
+                if (t != _lastUnifiedTitle || a != _lastUnifiedArtist)
                 {
-                    UnifiedInfoText.Text = infoStr;
+                    _lastUnifiedTitle = t;
+                    _lastUnifiedArtist = a;
+                    SetUnifiedInfoText(t, a);
                     UpdateUnifiedInfoMarquee();
                 }
 
                 // Linha 2: Lời bài hát với cuộn nhịp thời gian thực
                 if (_currentLyrics == null)
                 {
-                    SetUnifiedLyricLine(_isPlayingUi ? "♪" : "", 0, false);
+                    SetUnifiedLyricLine(_isPlayingUi ? "♪" : "", 0, false, TimeSpan.Zero);
                     return;
                 }
 
-                if (_currentLyrics.IsInstrumental || _currentLyrics.Lines.Count == 0)
+                if (_currentLyrics.IsInstrumental)
                 {
-                    SetUnifiedLyricLine("♪ Instrumental", 0, false);
+                    SetUnifiedLyricLine("♪ Instrumental", 0, false, TimeSpan.Zero);
+                    return;
+                }
+
+                if (_currentLyrics.Lines.Count == 0)
+                {
+                    SetUnifiedLyricLine(_isPlayingUi ? "♪" : "", 0, false, TimeSpan.Zero);
                     return;
                 }
 
@@ -1862,14 +2046,17 @@ public partial class MainWindow : Window
                 if (string.IsNullOrWhiteSpace(text))
                     text = "♪";
 
-                SetUnifiedLyricLine(text, lineInfo.Progress, lineInfo.HasMatch);
+                TimeSpan lineDuration = lineInfo.EndTime > lineInfo.StartTime ? (lineInfo.EndTime - lineInfo.StartTime) : TimeSpan.FromSeconds(4);
+                SetUnifiedLyricLine(text, lineInfo.Progress, lineInfo.HasMatch, lineDuration);
             }
             else
             {
                 // Modo Separado (2 Janelas)
-                if (StandardTextPanel.Visibility != Visibility.Visible)
+                if (!_modeTransitioning && StandardTextPanel.Visibility != Visibility.Visible)
                 {
                     StandardTextPanel.Visibility = Visibility.Visible;
+                    StandardTextPanel.Opacity = 1;
+                    StandardTextShift.Y = 0;
                     UnifiedTextPanel.Visibility = Visibility.Collapsed;
                     UpdateMarquee();
                 }
@@ -1880,9 +2067,15 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                if (_currentLyrics.IsInstrumental || _currentLyrics.Lines.Count == 0)
+                if (_currentLyrics.IsInstrumental)
                 {
                     _lyricsWindow?.SetLyric("♪ Instrumental");
+                    return;
+                }
+
+                if (_currentLyrics.Lines.Count == 0)
+                {
+                    _lyricsWindow?.SetLyric(_isPlayingUi ? "♪" : "");
                     return;
                 }
 
@@ -1903,14 +2096,64 @@ public partial class MainWindow : Window
         }
     }
 
+    private static readonly SolidColorBrush ArtistDimBrush = new(Color.FromRgb(0xB3, 0xB3, 0xB3));
+    private static readonly SolidColorBrush DotDimBrush = new(Color.FromRgb(0x80, 0x80, 0x80));
+    private string _lastUnifiedTitle = "";
+    private string _lastUnifiedArtist = "";
+
+    private void SetUnifiedInfoText(string title, string artist)
+    {
+        if (UnifiedInfoText == null) return;
+        UnifiedInfoText.Inlines.Clear();
+        if (string.IsNullOrWhiteSpace(artist) || artist == L.NothingPlaying)
+        {
+            UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(title)
+            {
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.SemiBold
+            });
+        }
+        else
+        {
+            // Tên bài hát: màu trắng nổi bật
+            UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(title)
+            {
+                Foreground = Brushes.White,
+                FontWeight = FontWeights.SemiBold
+            });
+            // Dấu chấm phân cách
+            UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(" • ")
+            {
+                Foreground = DotDimBrush,
+                FontWeight = FontWeights.Normal
+            });
+            // Tên tác giả: màu xám dịu
+            UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(artist)
+            {
+                Foreground = ArtistDimBrush,
+                FontWeight = FontWeights.Normal
+            });
+        }
+    }
+
+    private string _unifiedMarqueeKey = "";
+
     private void UpdateUnifiedInfoMarquee()
     {
         if (UnifiedInfoText == null || UnifiedInfoShift == null) return;
         double clipWidth = Math.Max(10, TextStack.Width);
         double dpi = 1.0;
         try { dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+        string fullText = string.Concat(UnifiedInfoText.Inlines.OfType<System.Windows.Documents.Run>().Select(r => r.Text));
+        if (string.IsNullOrEmpty(fullText))
+            fullText = UnifiedInfoText.Text ?? "";
+
+        string key = $"{fullText}|{clipWidth:0}|{dpi:0.##}";
+        if (key == _unifiedMarqueeKey) return;
+        _unifiedMarqueeKey = key;
+
         var ft = new FormattedText(
-            UnifiedInfoText.Text ?? "",
+            fullText,
             CultureInfo.CurrentCulture,
             FlowDirection.LeftToRight,
             new Typeface(UnifiedInfoText.FontFamily, UnifiedInfoText.FontStyle, UnifiedInfoText.FontWeight, UnifiedInfoText.FontStretch),
@@ -1918,90 +2161,205 @@ public partial class MainWindow : Window
             Brushes.White,
             dpi);
         double textWidth = ft.Width;
+
+        UnifiedInfoShift.BeginAnimation(TranslateTransform.XProperty, null);
+        UnifiedInfoShift.X = 0;
+
         double overflow = textWidth - clipWidth;
         if (overflow > 4)
         {
-            var duration = TimeSpan.FromSeconds(Math.Max(3, overflow / 20.0));
-            var anim = new DoubleAnimation(0, -overflow, duration)
-            {
-                AutoReverse = true,
-                RepeatBehavior = RepeatBehavior.Forever,
-                BeginTime = TimeSpan.FromSeconds(1)
-            };
+            double scrollSeconds = Math.Max(1.5, overflow / 25.0);
+            double end = -(overflow + 10);
+            var anim = new DoubleAnimationUsingKeyFrames();
+            Timeline.SetDesiredFrameRate(anim, 60);
+            double t = 2.0; // pausa inicial
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
+            t += scrollSeconds;
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(end, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
+            t += 1.5; // pausa no fim
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(end, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
+            t += 0.8; // regressar ao início e parar definitivamente (chạy 1 lần duy nhất)
+            anim.KeyFrames.Add(new LinearDoubleKeyFrame(0, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(t))));
+            anim.Duration = TimeSpan.FromSeconds(t);
+
             UnifiedInfoShift.BeginAnimation(TranslateTransform.XProperty, anim);
-        }
-        else
-        {
-            UnifiedInfoShift.BeginAnimation(TranslateTransform.XProperty, null);
-            UnifiedInfoShift.X = 0;
         }
     }
 
-    private void SetUnifiedLyricLine(string text, double progress, bool hasMatch)
+    private int _unifiedActiveLayer = 0;
+    private string _currentUnifiedLyric = "";
+    private double _lastLyricClipWidth = 0;
+    private double _lastLyricOverflow = 0;
+    private static readonly IEasingFunction LyricTransitionEase = new CubicEase { EasingMode = EasingMode.EaseOut };
+
+    private static double CalculateLyricScrollTarget(double overflow, double progress, bool hasMatch, bool isPlaying)
+    {
+        if (overflow <= 4 || !hasMatch || !isPlaying)
+            return 0;
+
+        if (progress <= 0.12)
+            return 0;
+
+        if (progress >= 0.88)
+            return -overflow;
+
+        double ratio = (progress - 0.12) / 0.76;
+        return -overflow * ratio;
+    }
+
+    private void SetUnifiedLyricLine(string text, double progress, bool hasMatch, TimeSpan lineDuration)
     {
         text = text?.Trim() ?? "";
-        if (UnifiedLyricText.Text != text)
-        {
-            UnifiedLyricText.Text = text;
-        }
 
-        if (string.IsNullOrEmpty(text) || text == "♪")
+        var currentTb = _unifiedActiveLayer == 0 ? UnifiedLyricText : UnifiedLyricTextTop;
+        var currentTr = _unifiedActiveLayer == 0 ? UnifiedLyricShift : UnifiedLyricShiftTop;
+
+        var nextTb = _unifiedActiveLayer == 0 ? UnifiedLyricTextTop : UnifiedLyricText;
+        var nextTr = _unifiedActiveLayer == 0 ? UnifiedLyricShiftTop : UnifiedLyricShift;
+
+        double clipWidth = Math.Max(10, TextStack.Width);
+
+        // 1. Khi câu hát đổi mới
+        if (_currentUnifiedLyric != text)
         {
-            UnifiedLyricShift.BeginAnimation(TranslateTransform.XProperty, null);
-            UnifiedLyricShift.X = 0;
+            _currentUnifiedLyric = text;
+            _lastLyricClipWidth = clipWidth;
+            const int TransitionMs = 240;
+
+            if (string.IsNullOrEmpty(text))
+            {
+                _lastLyricOverflow = 0;
+                var fadeOut = new DoubleAnimation(0, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
+                Timeline.SetDesiredFrameRate(fadeOut, 60);
+                currentTb.BeginAnimation(OpacityProperty, fadeOut);
+                nextTb.BeginAnimation(OpacityProperty, null);
+                nextTb.Opacity = 0;
+                currentTr.BeginAnimation(TranslateTransform.XProperty, null);
+                nextTr.BeginAnimation(TranslateTransform.XProperty, null);
+                return;
+            }
+
+            // Đo độ dài câu hát
+            double dpi = 1.0;
+            try { dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+
+            var ft = new FormattedText(
+                text,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(nextTb.FontFamily, nextTb.FontStyle, nextTb.FontWeight, nextTb.FontStretch),
+                nextTb.FontSize,
+                Brushes.White,
+                dpi);
+
+            double textWidth = ft.Width;
+            _lastLyricOverflow = Math.Max(0, textWidth - clipWidth);
+
+            // Bắt đầu vị trí X chuẩn xác theo tiến độ thực tế (nếu câu hát tải giữa chừng hoặc sau khi tua)
+            double initialTargetX = CalculateLyricScrollTarget(_lastLyricOverflow, progress, hasMatch, _isPlayingUi);
+            nextTr.BeginAnimation(TranslateTransform.XProperty, null);
+            nextTr.X = initialTargetX;
+
+            // Crossfade & trượt Y giữa 2 layer
+            if (string.IsNullOrEmpty(currentTb.Text) || currentTb.Opacity < 0.05)
+            {
+                nextTb.Text = text;
+                nextTr.BeginAnimation(TranslateTransform.YProperty, null);
+                nextTr.Y = 0;
+                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
+                Timeline.SetDesiredFrameRate(fadeIn, 60);
+                nextTb.BeginAnimation(OpacityProperty, fadeIn);
+                currentTb.BeginAnimation(OpacityProperty, null);
+                currentTb.Opacity = 0;
+                _unifiedActiveLayer = 1 - _unifiedActiveLayer;
+            }
+            else
+            {
+                // Linha de saída: sobe ligeiramente (-4px) e esbate para fora
+                var fadeOutAnim = new DoubleAnimation(0, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
+                var slideOutAnim = new DoubleAnimation(-4, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
+                Timeline.SetDesiredFrameRate(fadeOutAnim, 60);
+                Timeline.SetDesiredFrameRate(slideOutAnim, 60);
+                currentTb.BeginAnimation(OpacityProperty, fadeOutAnim);
+                currentTr.BeginAnimation(TranslateTransform.YProperty, slideOutAnim);
+
+                // Linha de entrada: sobe de +5px até 0px enquanto faz fade in
+                nextTb.Text = text;
+                nextTr.BeginAnimation(TranslateTransform.YProperty, null);
+                nextTr.Y = 5;
+
+                var fadeInAnim = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
+                var slideInAnim = new DoubleAnimation(0, TimeSpan.FromMilliseconds(TransitionMs)) { EasingFunction = LyricTransitionEase };
+                Timeline.SetDesiredFrameRate(fadeInAnim, 60);
+                Timeline.SetDesiredFrameRate(slideInAnim, 60);
+
+                nextTb.BeginAnimation(OpacityProperty, fadeInAnim);
+                nextTr.BeginAnimation(TranslateTransform.YProperty, slideInAnim);
+
+                _unifiedActiveLayer = 1 - _unifiedActiveLayer;
+            }
             return;
         }
 
-        double dpi = 1.0;
-        try { dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+        // 2. Câu hát không đổi: liên tục neo vị trí X theo nhịp progress thời gian thực
+        var activeTb = _unifiedActiveLayer == 0 ? UnifiedLyricText : UnifiedLyricTextTop;
+        var activeTr = _unifiedActiveLayer == 0 ? UnifiedLyricShift : UnifiedLyricShiftTop;
 
-        var ft = new FormattedText(
-            text,
-            CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            new Typeface(UnifiedLyricText.FontFamily, UnifiedLyricText.FontStyle, UnifiedLyricText.FontWeight, UnifiedLyricText.FontStretch),
-            UnifiedLyricText.FontSize,
-            Brushes.White,
-            dpi);
-
-        double textWidth = ft.Width;
-        double clipWidth = Math.Max(10, TextStack.Width);
-        double overflow = textWidth - clipWidth;
-
-        double targetX;
-        if (overflow > 0 && hasMatch)
+        if (string.IsNullOrEmpty(text) || text == "♪" || !hasMatch)
         {
-            // Time-synced pacing curve:
-            // 0.0 - 0.15: dwell at start of line
-            // 0.15 - 0.85: smooth paced scroll from 0 to -overflow
-            // 0.85 - 1.0: dwell at end of line
-            double paced;
-            if (progress <= 0.15)
-                paced = 0.0;
-            else if (progress >= 0.85)
-                paced = 1.0;
-            else
-                paced = (progress - 0.15) / 0.70;
-
-            targetX = -overflow * Math.Clamp(paced, 0.0, 1.0);
-        }
-        else
-        {
-            // Text fits inside clip: align according to LyricsAlignment
-            var align = _settings.LyricsAlignment?.ToLowerInvariant();
-            if (align == "right")
-                targetX = Math.Max(0, clipWidth - textWidth);
-            else if (align == "left")
-                targetX = 0;
-            else // center
-                targetX = Math.Max(0, (clipWidth - textWidth) / 2);
+            if (activeTr.X != 0)
+            {
+                activeTr.BeginAnimation(TranslateTransform.XProperty, null);
+                activeTr.X = 0;
+            }
+            return;
         }
 
-        var anim = new DoubleAnimation(targetX, TimeSpan.FromMilliseconds(100))
+        // Cập nhật lại overflow nếu độ rộng widget thay đổi
+        if (Math.Abs(clipWidth - _lastLyricClipWidth) > 3)
         {
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseOut }
-        };
-        UnifiedLyricShift.BeginAnimation(TranslateTransform.XProperty, anim);
+            _lastLyricClipWidth = clipWidth;
+            double dpi = 1.0;
+            try { dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
+
+            var ft = new FormattedText(
+                text,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(activeTb.FontFamily, activeTb.FontStyle, activeTb.FontWeight, activeTb.FontStretch),
+                activeTb.FontSize,
+                Brushes.White,
+                dpi);
+
+            _lastLyricOverflow = Math.Max(0, ft.Width - clipWidth);
+        }
+
+        if (!_isPlayingUi)
+        {
+            // Tạm dừng: cố định vị trí hiện tại
+            activeTr.BeginAnimation(TranslateTransform.XProperty, null);
+            return;
+        }
+
+        if (_lastLyricOverflow <= 4)
+        {
+            if (activeTr.X != 0)
+            {
+                activeTr.BeginAnimation(TranslateTransform.XProperty, null);
+                activeTr.X = 0;
+            }
+            return;
+        }
+
+        // Đang phát và câu dài tràn lề: trượt mượt 120ms theo đúng tiến độ của ca sĩ
+        double targetX = CalculateLyricScrollTarget(_lastLyricOverflow, progress, hasMatch, _isPlayingUi);
+        if (Math.Abs(activeTr.X - targetX) > 0.5)
+        {
+            var anim = new DoubleAnimation(targetX, TimeSpan.FromMilliseconds(120));
+            Timeline.SetDesiredFrameRate(anim, 60);
+            activeTr.BeginAnimation(TranslateTransform.XProperty, anim);
+        }
     }
 
     private void VolumePopup_Closed(object sender, EventArgs e)
@@ -2106,13 +2464,26 @@ public partial class MainWindow : Window
 
     // ---------- Mover (só quando ativado no menu) / clique para abrir o Spotify ----------
 
+    private enum DragAction { None, Move, ResizeLeft, ResizeRight }
+    private DragAction _dragAction = DragAction.None;
+    private double _dragStartTextWidth;
+
     private void Root_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (_moveMode)
         {
+            Point p = e.GetPosition(Root);
+            if (p.X <= 14)
+                _dragAction = DragAction.ResizeLeft;
+            else if (p.X >= Root.ActualWidth - 14)
+                _dragAction = DragAction.ResizeRight;
+            else
+                _dragAction = DragAction.Move;
+
             _dragging = true;
             _dragMoved = false;
             _dragStartLeft = Left;
+            _dragStartTextWidth = TextStack.Width;
             _dragStartScreen = PointToScreen(e.GetPosition(this));
             Root.CaptureMouse();
         }
@@ -2124,7 +2495,18 @@ public partial class MainWindow : Window
 
     private void Root_MouseMove(object sender, MouseEventArgs e)
     {
-        if (!_dragging) return;
+        if (!_dragging)
+        {
+            if (_moveMode)
+            {
+                Point p = e.GetPosition(Root);
+                if (p.X <= 14 || p.X >= Root.ActualWidth - 14)
+                    Root.Cursor = Cursors.SizeWE;
+                else
+                    Root.Cursor = Cursors.SizeAll;
+            }
+            return;
+        }
 
         Point cur = PointToScreen(e.GetPosition(this));
         double dxDevice = cur.X - _dragStartScreen.X;
@@ -2134,8 +2516,37 @@ public partial class MainWindow : Window
         double dx = source.CompositionTarget.TransformFromDevice.Transform(new Vector(dxDevice, 0)).X;
 
         if (Math.Abs(dx) > 3) _dragMoved = true;
-        if (_dragMoved)
+        if (!_dragMoved) return;
+
+        double scale = Math.Max(0.1, _settings.Scale);
+
+        if (_dragAction == DragAction.Move)
+        {
             Left = _dragStartLeft + dx;
+        }
+        else if (_dragAction == DragAction.ResizeRight)
+        {
+            double dWidth = dx / scale;
+            double newWidth = Math.Max(MinTextWidth, _dragStartTextWidth + dWidth);
+            if (Math.Abs(TextStack.Width - newWidth) > 0.5)
+            {
+                TextStack.Width = newWidth;
+                UpdateMarquee();
+                UpdateUnifiedInfoMarquee();
+            }
+        }
+        else if (_dragAction == DragAction.ResizeLeft)
+        {
+            double dWidth = -dx / scale;
+            double newWidth = Math.Max(MinTextWidth, _dragStartTextWidth + dWidth);
+            if (Math.Abs(TextStack.Width - newWidth) > 0.5)
+            {
+                TextStack.Width = newWidth;
+                Left = _dragStartLeft - (newWidth - _dragStartTextWidth) * scale;
+                UpdateMarquee();
+                UpdateUnifiedInfoMarquee();
+            }
+        }
     }
 
     private void Root_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -2143,17 +2554,70 @@ public partial class MainWindow : Window
         if (_dragging)
         {
             _dragging = false;
+            _dragAction = DragAction.None;
             Root.ReleaseMouseCapture();
             if (_dragMoved)
             {
-                // Fica bloqueado nesta posição (modo manual) SÓ nesta barra;
-                // px físicos, indexados pelo monitor desta janela
-                if (Interop.GetWindowRect(_hwnd, out var w))
+                UpdateLayout();
+                IntPtr tray = GetTargetTray();
+                if (tray != IntPtr.Zero && Interop.GetWindowRect(tray, out var r) && Interop.GetWindowRect(_hwnd, out var w))
                 {
-                    var targetDict = IsTaskbarLeftAligned() ? _settings.ManualXLeft : _settings.ManualX;
-                    targetDict[TrayIndex] = w.Left;
+                    bool isLeft = IsTaskbarLeftAligned();
+                    double? widgetsRightPx, startLeftPx, taskEndPx;
+                    lock (_anchorLock)
+                    {
+                        widgetsRightPx = _widgetsRightPx;
+                        startLeftPx = _startLeftPx;
+                        taskEndPx = _taskEndPx;
+                    }
+
+                    int slotLeft, slotRight;
+                    bool isRightSlot = false;
+                    if (!isLeft)
+                    {
+                        int centerDivider = startLeftPx.HasValue 
+                            ? (int)startLeftPx.Value 
+                            : (r.Left + (r.Right - r.Left) / 2);
+                        if (w.Left < centerDivider)
+                        {
+                            isRightSlot = false;
+                            slotLeft = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
+                            slotRight = startLeftPx.HasValue ? (int)startLeftPx.Value - 8 : r.Left + (r.Right - r.Left) / 2 - 8;
+                        }
+                        else
+                        {
+                            isRightSlot = true;
+                            int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                            slotLeft = taskEndPx.HasValue ? (int)taskEndPx.Value + 8 : r.Left + (r.Right - r.Left) / 2 + 100;
+                            slotRight = (notifyLeftPx ?? (r.Right - 220)) - 8;
+                        }
+                    }
+                    else
+                    {
+                        int? notifyLeftPx = Interop.GetTrayNotifyLeft(tray);
+                        slotLeft = taskEndPx.HasValue ? (int)taskEndPx.Value + 8 : r.Left + 300;
+                        slotRight = (notifyLeftPx ?? (r.Right - 220)) - 8;
+                    }
+
+                    double gapLeft = Math.Max(0, w.Left - slotLeft);
+                    double gapRight = Math.Max(0, slotRight - w.Right);
+                    var sm = new SlotMargins
+                    {
+                        GapLeft = gapLeft,
+                        GapRight = gapRight,
+                        IsRightSlot = isRightSlot,
+                        CustomTextWidth = TextStack.Width
+                    };
+
+                    var marginsDict = isLeft ? _settings.MarginsLeft : _settings.MarginsCenter;
+                    marginsDict[TrayIndex] = sm;
+
+                    var manualDict = isLeft ? _settings.ManualXLeft : _settings.ManualX;
+                    manualDict[TrayIndex] = w.Left;
+
+                    _settings.AutoPosition = false;
+                    _settings.Save();
                 }
-                _settings.Save();
             }
         }
         else if (_pressed)
@@ -2168,109 +2632,28 @@ public partial class MainWindow : Window
     private void MoveMode_Click(object sender, RoutedEventArgs e)
     {
         _moveMode = MoveMenu.IsChecked;
+        ContentPanel.IsHitTestVisible = !_moveMode;
         Root.Cursor = _moveMode ? Cursors.SizeAll : Cursors.Hand;
     }
 
     private void ResetPos_Click(object sender, RoutedEventArgs e)
     {
-        // Repõe as POSIÇÕES automáticas em todas as barras; a seleção de
-        // monitores fica como está (limpá-la destruía a escolha do utilizador)
         _settings.AutoPosition = true;
         _settings.ManualX.Clear();
         _settings.ManualXLeft.Clear();
+        _settings.MarginsCenter.Clear();
+        _settings.MarginsLeft.Clear();
         _settings.Save();
         MoveMenu.IsChecked = false;
         _moveMode = false;
+        ContentPanel.IsHitTestVisible = true;
         Root.Cursor = Cursors.Hand;
         UpdatePosition();
     }
 
-    private void Size_Click(object sender, RoutedEventArgs e)
-    {
-        var item = (MenuItem)sender;
-        _settings.Scale = double.Parse((string)item.Tag, CultureInfo.InvariantCulture);
-        // O Save propaga a TODAS as janelas via Changed (ApplySettingsUi +
-        // reposicionamento adiado para depois do layout) — nada a fazer aqui
-        _settings.Save();
-    }
-
     private void ApplyScale() => Root.LayoutTransform = new ScaleTransform(_settings.Scale, _settings.Scale);
 
-    private void UpdateSizeChecks()
-    {
-        SizeSmall.IsChecked = Math.Abs(_settings.Scale - 0.8) < 0.01;
-        SizeNormal.IsChecked = Math.Abs(_settings.Scale - 1.0) < 0.01;
-        SizeLarge.IsChecked = _settings.Scale > 1.05;
-    }
-
-    /// <summary>Brilho/opacidade do widget — pedido de utilizadores OLED que
-    /// escurecem a barra: um widget a brilho total destoa e marca o painel.</summary>
-    private bool _opacityLoading;
-
-    /// <summary>Slider de brilho 20–100% (pedido da comunidade OLED). Pré-visualiza
-    /// ao vivo ao arrastar; grava no fim, uma vez, para não inundar o disco nem
-    /// o evento Changed com um Save por cada passo do arrasto.</summary>
-    private void OpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        // Durante o carregamento do XAML, definir Minimum=20 coage o Value de 0
-        // para 20 e dispara este evento ANTES de Root/OpacityValueText existirem
-        // — sem este guard era NRE e a janela nunca se construía (widget sumia)
-        if (_opacityLoading || !_uiReady) return;
-        _settings.Opacity = Math.Clamp(e.NewValue / 100.0, 0.2, 1.0);
-        ApplyOpacity();
-        OpacityValueText.Text = $"{Math.Round(e.NewValue)}%";
-        // Adiar o Save até o slider assentar (sem eventos por ~400ms)
-        _opacitySaveTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-        _opacitySaveTimer.Stop();
-        _opacitySaveTimer.Tick -= OpacitySaveTick;
-        _opacitySaveTimer.Tick += OpacitySaveTick;
-        _opacitySaveTimer.Start();
-    }
-
-    private DispatcherTimer? _opacitySaveTimer;
-
-    private void OpacitySaveTick(object? sender, EventArgs e)
-    {
-        _opacitySaveTimer?.Stop();
-        _settings.Save(); // propaga a todas as janelas via Changed
-    }
-
-    private int _opacityWheelAccum;
-
-    /// <summary>Roda do rato sobre o slider de brilho: ±5% por notch, igual ao
-    /// volume. Acumula o delta (touchpads de precisão mandam muitos eventos
-    /// pequenos) e descarta o resto ao inverter o sentido.</summary>
-    private void Opacity_MouseWheel(object sender, MouseWheelEventArgs e)
-    {
-        e.Handled = true;
-        if (_opacityWheelAccum != 0 && Math.Sign(_opacityWheelAccum) != Math.Sign(e.Delta))
-            _opacityWheelAccum = 0;
-        _opacityWheelAccum += e.Delta;
-        int steps = _opacityWheelAccum / 120;
-        if (steps == 0) return;
-        _opacityWheelAccum -= steps * 120;
-        // Mexer no Value dispara o ValueChanged, que aplica e agenda o Save
-        OpacitySlider.Value = Math.Clamp(OpacitySlider.Value + 5 * steps, 20, 100);
-    }
-
     private void ApplyOpacity() => Root.Opacity = _settings.Opacity;
-
-    private void UpdateOpacityChecks()
-    {
-        // Refletir o valor guardado no slider sem redisparar o Save
-        _opacityLoading = true;
-        OpacitySlider.Value = Math.Round(_settings.Opacity * 100);
-        OpacityValueText.Text = $"{Math.Round(_settings.Opacity * 100)}%";
-        _opacityLoading = false;
-    }
-
-    private void Launcher_Click(object sender, RoutedEventArgs e)
-    {
-        _settings.ShowLauncher = LauncherMenu.IsChecked;
-        _settings.Save();
-        _ = RefreshTrackAsync();
-        UpdatePosition();
-    }
 
     private void Buttons_Click(object sender, RoutedEventArgs e)
     {
@@ -2343,85 +2726,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void OpenSpotify_Click(object sender, RoutedEventArgs e) => SpotifyActions.OpenSpotifyWindow();
-
-    private async void Update_Click(object sender, RoutedEventArgs e)
-    {
-        if (!UpdateService.IsConfigured)
-        {
-            MessageBox.Show(L.UpdateNotConfigured(UpdateService.CurrentVersion), L.AppTitle);
-            return;
-        }
-
-        UpdateMenu.IsEnabled = false;
-        try
-        {
-            // Se a verificação silenciosa já encontrou uma versão nova, usar
-            // esse resultado (ir direto ao pedido) em vez de re-verificar
-            var update = _pendingUpdate ?? await UpdateService.CheckAsync();
-            if (update == null)
-            {
-                MessageBox.Show(L.UpdateLatest(UpdateService.CurrentVersion), L.AppTitle);
-                return;
-            }
-
-            var answer = MessageBox.Show(
-                L.UpdatePrompt(update.Value.Version, UpdateService.CurrentVersion),
-                L.AppTitle, MessageBoxButton.YesNo);
-            if (answer == MessageBoxResult.Yes)
-                await UpdateService.DownloadAndApplyAsync(update.Value.Url);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(L.UpdateError(ex.Message), L.AppTitle);
-        }
-        finally
-        {
-            UpdateMenu.IsEnabled = true;
-        }
-    }
-
-    /// <summary>Verificação silenciosa: ao arrancar e depois a cada 6 h (um
-    /// widget fica dias aberto e nunca reparava de outra forma). Se houver
-    /// versão nova, realça o item do menu em TODAS as janelas.</summary>
-    private async Task CheckUpdatesQuietlyAsync()
-    {
-        await Task.Delay(TimeSpan.FromSeconds(20));
-        while (!_closed)
-        {
-            try
-            {
-                var update = await UpdateService.CheckAsync();
-                if (update != null)
-                {
-                    _pendingUpdate = update;
-                    await Dispatcher.InvokeAsync(RefreshAllUpdateMenus);
-                }
-            }
-            catch { }
-            await Task.Delay(TimeSpan.FromHours(6));
-        }
-    }
-
-    private static void RefreshAllUpdateMenus()
-    {
-        foreach (var w in Instances)
-            w.RefreshUpdateMenu();
-    }
-
-    /// <summary>Aplica o realce "nova versão" ao item do menu (verde + negrito +
-    /// ⬤) se houver uma atualização pendente. Chamado ao carregar a janela e
-    /// quando a verificação encontra uma versão nova.</summary>
-    private void RefreshUpdateMenu()
-    {
-        if (PackagedApp.IsPackaged) return; // a Store trata das atualizações
-        if (_pendingUpdate is { } u)
-        {
-            UpdateMenu.Header = L.UpdateAvailable(u.Version);
-            UpdateMenu.Foreground = new SolidColorBrush(Color.FromRgb(0x1E, 0xD7, 0x60));
-            UpdateMenu.FontWeight = FontWeights.Bold;
-        }
-    }
 
     private void Exit_Click(object sender, RoutedEventArgs e)
     {
@@ -2448,10 +2752,6 @@ public partial class MainWindow : Window
         _media.Shutdown(); // solta as subscrições WinRT que prendiam a janela
         WidgetSettings.Changed -= OnSettingsChanged;
         Instances.Remove(this);
-        // Última janela fechada (ex.: reinício do Explorer): reabrir a porta à
-        // verificação de updates, para o widget recriado voltar a verificar
-        if (Instances.Count == 0)
-            _updateCheckStarted = false;
         if (!App.IntentionalExit && !ClosedByApp && !_recreatePending)
         {
             // Explorer reiniciou e levou as janelas (são owned pelas barras):

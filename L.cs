@@ -14,11 +14,11 @@ internal static class L
     public const string AppTitle = "Taskbar Widget for Spotify";
 
     // Menu
-    public static string MoveWidget => Pt ? "Mover widget" : "Move widget";
+    public static string MoveWidget => Pt ? "Mover / Redimensionar" : "Move / Resize";
     public static string MoveWidgetTip => Pt
-        ? "Arrasta o widget para onde quiseres; desmarca para bloquear nessa posição"
-        : "Drag the widget wherever you want; untick to lock it in place";
-    public static string ResetAutoPos => Pt ? "Repor posição automática" : "Reset to automatic position";
+        ? "Arrasta para mover ou ajusta as bordas para redimensionar; desmarca para bloquear"
+        : "Drag to move or drag edges to resize; untick to lock";
+    public static string ResetAutoPos => Pt ? "Repor posição e tamanho" : "Reset position & size";
     public static string MonitorMenu => Pt ? "Monitor" : "Monitor";
     public static string MonitorPrimary => Pt ? "Principal" : "Primary";
     public static string MonitorN(int n) => Pt ? $"Monitor {n}" : $"Monitor {n}";
@@ -31,7 +31,7 @@ internal static class L
     public static string SizeNormal => Pt ? "Normal" : "Normal";
     public static string SizeLarge => Pt ? "Grande" : "Large";
     public static string ButtonsMenu => Pt ? "Botões" : "Buttons";
-    public static string BtnLike => Pt ? "Adicionar aos favoritos (+)" : "Add to favorites (+)";
+    public static string BtnLike => Pt ? "Favorito (+)" : "Favorite (+)";
     public static string BtnShuffle => Pt ? "Modo aleatório" : "Shuffle";
     public static string BtnPlay => Pt ? "Reproduzir/Pausar" : "Play/Pause";
     public static string BtnPrev => Pt ? "Anterior" : "Previous";
@@ -40,14 +40,14 @@ internal static class L
     public static string BtnVolume => Pt ? "Volume" : "Volume";
     public static string ProgressBar => Pt ? "Barra de progresso" : "Progress bar";
     public static string ScrollTitleOnce => Pt ? "Deslizar título só uma vez" : "Scroll title only once";
-    public static string LyricsMenu => Pt ? "Letras (Lyrics)" : "Lyrics";
-    public static string ShowLyrics => Pt ? "Mostrar letras na barra" : "Show lyrics on taskbar";
+    public static string LyricsMenu => Pt ? "Letras" : "Lyrics";
+    public static string ShowLyrics => Pt ? "Mostrar letras" : "Show lyrics";
     public static string LyricsAlign => Pt ? "Alinhamento" : "Alignment";
     public static string LyricsAlignLeft => Pt ? "Esquerda" : "Left";
     public static string LyricsAlignCenter => Pt ? "Centro" : "Center";
     public static string LyricsAlignRight => Pt ? "Direita" : "Right";
-    public static string LyricsModeUnified => Pt ? "1 Janela (Combinada no Player)" : "1 Window (Combined in Player)";
-    public static string LyricsModeSeparate => Pt ? "2 Janelas (Separada na barra)" : "2 Windows (Separate on taskbar)";
+    public static string LyricsModeUnified => Pt ? "1 Janela (Combinada)" : "1 Window (Combined)";
+    public static string LyricsModeSeparate => Pt ? "2 Janelas (Separadas)" : "2 Windows (Separate)";
     public static string ShowLauncher => Pt ? "Mostrar botão para abrir o Spotify" : "Show button to open Spotify";
     public static string ShowLauncherTip => Pt
         ? "Com o Spotify fechado, mostra um botão para o abrir em vez de esconder o widget"
