@@ -235,7 +235,7 @@
                 <Separator/>
                 <MenuItem x:Name="LyricsMenuItem" Header="Lyrics">
                     <MenuItem x:Name="ShowLyricsMenu" Header="Show lyrics" IsCheckable="True" Click="ShowLyrics_Click"/>
-                    <MenuItem x:Name="LyricsAlignMenu" Header="Alignment">
+                    <MenuItem x:Name="LyricsAlignMenu" Header="Alignment" Visibility="Collapsed">
                         <MenuItem x:Name="LyricsAlignLeftMenu" Header="Left" IsCheckable="True" Click="LyricsAlign_Click" Tag="Left"/>
                         <MenuItem x:Name="LyricsAlignCenterMenu" Header="Center" IsCheckable="True" Click="LyricsAlign_Click" Tag="Center"/>
                         <MenuItem x:Name="LyricsAlignRightMenu" Header="Right" IsCheckable="True" Click="LyricsAlign_Click" Tag="Right"/>

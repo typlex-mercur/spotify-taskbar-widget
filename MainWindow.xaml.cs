@@ -331,6 +331,7 @@ public partial class MainWindow : Window
         ShowLyricsMenu.IsChecked = _settings.ShowLyrics;
         LyricsUnifiedMenu.IsChecked = _settings.ShowLyrics && _settings.UnifiedLyrics;
         LyricsSeparateMenu.IsChecked = _settings.ShowLyrics && !_settings.UnifiedLyrics;
+        LyricsAlignMenu.Visibility = (!_settings.UnifiedLyrics && _settings.ShowLyrics) ? Visibility.Visible : Visibility.Collapsed;
         LyricsAlignLeftMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Left", StringComparison.OrdinalIgnoreCase);
         LyricsAlignCenterMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Center", StringComparison.OrdinalIgnoreCase) || string.IsNullOrEmpty(_settings.LyricsAlignment);
         LyricsAlignRightMenu.IsChecked = string.Equals(_settings.LyricsAlignment, "Right", StringComparison.OrdinalIgnoreCase);
