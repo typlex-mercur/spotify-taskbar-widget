@@ -2,6 +2,6 @@ bin/
 obj/
 publish/
 installer/
-Packaging/staging/
-Packaging/out/
-Packaging/sdk-tools/
+*.user
+*.suo
+.vs/

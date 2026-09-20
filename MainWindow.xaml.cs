@@ -1887,8 +1887,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                TimeSpan pos = _basePosition;
-                if (_isPlayingUi) pos += DateTime.UtcNow - _basePositionAt;
+                TimeSpan pos = GetCurrentLyricPosition();
                 var lineInfo = _currentLyrics.GetLineInfoAt(pos);
                 string text = string.IsNullOrWhiteSpace(lineInfo.Text) ? "♪" : lineInfo.Text;
                 TimeSpan lineDuration = lineInfo.EndTime > lineInfo.StartTime ? (lineInfo.EndTime - lineInfo.StartTime) : TimeSpan.FromSeconds(4);
@@ -1974,6 +1973,21 @@ public partial class MainWindow : Window
         UpdateLyricsUi();
     }
 
+    /// <summary>
+    /// Đón đầu hiển thị lyric tự động (~250ms).
+    /// Bù trừ thời gian animation chuyển dòng (240ms) và độ trễ phản xạ tự nhiên
+    /// của các file LRC cộng đồng, giúp câu hát hiện rõ nét 100% đúng thời điểm ca sĩ cất giọng.
+    /// </summary>
+    private static readonly TimeSpan LyricLeadIn = TimeSpan.FromMilliseconds(250);
+
+    private TimeSpan GetCurrentLyricPosition()
+    {
+        TimeSpan pos = _basePosition;
+        if (_isPlayingUi)
+            pos += DateTime.UtcNow - _basePositionAt;
+        return pos + LyricLeadIn;
+    }
+
     private void UpdateLyricsUi()
     {
         try
@@ -2037,9 +2051,7 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                TimeSpan pos = _basePosition;
-                if (_isPlayingUi)
-                    pos += DateTime.UtcNow - _basePositionAt;
+                TimeSpan pos = GetCurrentLyricPosition();
 
                 var lineInfo = _currentLyrics.GetLineInfoAt(pos);
                 string text = lineInfo.Text;
@@ -2079,9 +2091,7 @@ public partial class MainWindow : Window
                     return;
                 }
 
-                TimeSpan pos = _basePosition;
-                if (_isPlayingUi)
-                    pos += DateTime.UtcNow - _basePositionAt;
+                TimeSpan pos = GetCurrentLyricPosition();
 
                 string line = _currentLyrics.GetLineAt(pos);
                 if (string.IsNullOrWhiteSpace(line))
