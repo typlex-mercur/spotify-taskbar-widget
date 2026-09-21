@@ -21,6 +21,8 @@
     <SelfContained>false</SelfContained>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
   </PropertyGroup>
 
 </Project>

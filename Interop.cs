@@ -16,6 +16,20 @@ internal static class Interop
     [DllImport("user32.dll")]
     public static extern bool IsIconic(IntPtr hWnd);
 
+    [DllImport("psapi.dll")]
+    public static extern bool EmptyWorkingSet(IntPtr hProcess);
+
+    public static void TrimWorkingSet()
+    {
+        try
+        {
+            GC.Collect(2, GCCollectionMode.Forced, false, false);
+            GC.WaitForPendingFinalizers();
+            EmptyWorkingSet(Process.GetCurrentProcess().Handle);
+        }
+        catch { }
+    }
+
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOSIZE = 0x0001;

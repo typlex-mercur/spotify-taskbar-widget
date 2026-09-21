@@ -342,9 +342,6 @@
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="UnifiedLyricShift" X="0" Y="0"/>
                                 </TextBlock.RenderTransform>
-                                <TextBlock.Effect>
-                                    <DropShadowEffect Color="#000000" BlurRadius="4" ShadowDepth="1" Opacity="0.85" Direction="270"/>
-                                </TextBlock.Effect>
                             </TextBlock>
                             <TextBlock x:Name="UnifiedLyricTextTop" Text="" Foreground="White"
                                        FontWeight="SemiBold" FontSize="11.5"
@@ -353,9 +350,6 @@
                                 <TextBlock.RenderTransform>
                                     <TranslateTransform x:Name="UnifiedLyricShiftTop" X="0" Y="0"/>
                                 </TextBlock.RenderTransform>
-                                <TextBlock.Effect>
-                                    <DropShadowEffect Color="#000000" BlurRadius="4" ShadowDepth="1" Opacity="0.85" Direction="270"/>
-                                </TextBlock.Effect>
                             </TextBlock>
                         </Canvas>
                     </StackPanel>

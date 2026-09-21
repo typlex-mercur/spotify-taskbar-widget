@@ -79,8 +79,9 @@ public partial class MainWindow : Window
             win._trayCache = IntPtr.Zero;
     }
 
-    private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private readonly DispatcherTimer _positionTimer = new() { Interval = TimeSpan.FromMilliseconds(1000) };
     private readonly DispatcherTimer _trackTimer = new() { Interval = TimeSpan.FromSeconds(3) };
+    private DateTime _lastTrimAt = DateTime.MinValue;
 
     private IntPtr _hwnd;
     private bool _moveMode;
@@ -108,7 +109,7 @@ public partial class MainWindow : Window
     private LyricsWindow? _lyricsWindow;
     private SongLyrics? _currentLyrics;
     private string _lastLyricsTrackKey = "";
-    private readonly DispatcherTimer _lyricsTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+    private readonly DispatcherTimer _lyricsTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
 
     // Estado via acessibilidade (favorito/aleatório/repetição): caro de ler,
     // por isso só em mudanças de faixa, após cliques, ou a cada 5 s
@@ -174,6 +175,24 @@ public partial class MainWindow : Window
         // Não roubar o foco ao clicar e não aparecer no Alt+Tab
         int ex = Interop.GetWindowLong(_hwnd, Interop.GWL_EXSTYLE);
         Interop.SetWindowLong(_hwnd, Interop.GWL_EXSTYLE, ex | Interop.WS_EX_TOOLWINDOW | Interop.WS_EX_NOACTIVATE);
+
+        if (HwndSource.FromHwnd(_hwnd) is HwndSource source)
+        {
+            source.AddHook(WndProc);
+        }
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WM_SETTINGCHANGE = 0x001A;
+        const int WM_THEMECHANGED = 0x031A;
+
+        if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED)
+        {
+            _lastThemeCheck = DateTime.MinValue;
+            ApplyThemeIfChanged();
+        }
+        return IntPtr.Zero;
     }
 
     /// <summary>Aplica os textos no idioma do Windows (PT ou EN).</summary>
@@ -292,6 +311,11 @@ public partial class MainWindow : Window
             UpdatePosition();
             UpdateProgressUi();
             ApplyThemeIfChanged();
+            if ((DateTime.UtcNow - _lastTrimAt).TotalSeconds > 60)
+            {
+                _lastTrimAt = DateTime.UtcNow;
+                Interop.TrimWorkingSet();
+            }
         };
         _positionTimer.Start();
 
@@ -327,6 +351,7 @@ public partial class MainWindow : Window
         if (_closed)
             return; // fechada durante o await (sync de monitores / restart do Explorer)
         await RefreshTrackAsync();
+        _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.InvokeAsync(Interop.TrimWorkingSet));
     }
 
     /// <summary>Estado da UI que espelha as definições partilhadas (menus,
@@ -1219,6 +1244,7 @@ public partial class MainWindow : Window
             if (keyChanged)
             {
                 _ = SettleStateAsync(); // re-ler até o Spotify renderizar a barra da faixa nova
+                _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.InvokeAsync(Interop.TrimWorkingSet));
             }
             var (liked, uiaMode, repeatMode) = _uiaState;
             // Depois de adicionar aos favoritos, ignorar "não gostado" antigo — o
@@ -1410,6 +1436,11 @@ public partial class MainWindow : Window
         SetPlayPauseIcon(_isPlayingUi);
         if (!_isPlayingUi)
             _basePosition += DateTime.UtcNow - _basePositionAt; // congelar posição
+        else
+        {
+            _lyricsTimer.Interval = TimeSpan.FromMilliseconds(250);
+            UpdateLyricsUi();
+        }
         _basePositionAt = DateTime.UtcNow;
         await _media.TogglePlayPauseAsync();
     }
@@ -1643,10 +1674,15 @@ public partial class MainWindow : Window
         }
     }
 
+    private DateTime _lastThemeCheck = DateTime.MinValue;
+
     /// <summary>A barra de tarefas segue o tema do SISTEMA (não o das apps);
     /// numa barra clara os textos/ícones têm de escurecer.</summary>
     private void ApplyThemeIfChanged()
     {
+        if ((DateTime.UtcNow - _lastThemeCheck).TotalSeconds < 10) return;
+        _lastThemeCheck = DateTime.UtcNow;
+
         bool light = IsSystemLightTheme();
         if (_lightTheme == light) return;
         _lightTheme = light;
@@ -2013,6 +2049,17 @@ public partial class MainWindow : Window
         try
         {
             bool showLyrics = _settings.ShowLyrics && _spotifyPresent;
+
+            if (!showLyrics || !_isPlayingUi || _currentLyrics == null || _currentLyrics.Lines.Count == 0)
+            {
+                if (_lyricsTimer.Interval.TotalMilliseconds < 800)
+                    _lyricsTimer.Interval = TimeSpan.FromMilliseconds(1000);
+            }
+            else
+            {
+                if (_lyricsTimer.Interval.TotalMilliseconds > 300)
+                    _lyricsTimer.Interval = TimeSpan.FromMilliseconds(250);
+            }
 
             if (!showLyrics)
             {

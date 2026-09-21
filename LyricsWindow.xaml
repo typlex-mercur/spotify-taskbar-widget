@@ -34,9 +34,6 @@
             <TextBlock.RenderTransform>
                 <TranslateTransform x:Name="LyricTransform" X="0" Y="0"/>
             </TextBlock.RenderTransform>
-            <TextBlock.Effect>
-                <DropShadowEffect Color="#000000" BlurRadius="5" ShadowDepth="1" Opacity="0.85" Direction="270"/>
-            </TextBlock.Effect>
         </TextBlock>
 
         <!-- Layer 2 -->
@@ -56,9 +53,6 @@
             <TextBlock.RenderTransform>
                 <TranslateTransform x:Name="LyricTransformTop" X="0" Y="0"/>
             </TextBlock.RenderTransform>
-            <TextBlock.Effect>
-                <DropShadowEffect Color="#000000" BlurRadius="5" ShadowDepth="1" Opacity="0.85" Direction="270"/>
-            </TextBlock.Effect>
         </TextBlock>
     </Grid>
 </Window>
