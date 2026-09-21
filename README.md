@@ -140,6 +140,9 @@ Remove-Item "publish\temp" -Recurse -Force
    - Bạn chỉ cần nhấp vào **More info** (Thông tin khác) và chọn **Run anyway** (Vẫn chạy).
 3. **Bài hát không hiển thị lời?**
    - Một số bài hát quá mới hoặc bản thu âm không chính thức có thể chưa có dữ liệu đồng bộ thời gian trên LRCLIB và QQ Music. Ứng dụng sẽ tự động ẩn dòng lời bài hát khi không tìm thấy lời.
+4. **Lời bài hát bị lệch nhịp / trễ (Delay) ở một số bài?**
+   - Lời bài hát được lấy từ cơ sở dữ liệu mở cộng đồng (LRCLIB, QQ Music). Mốc thời gian (timestamp) của file LRC do người dùng tự gõ và căn chỉnh thủ công bằng tai.
+   - Một số ít bài hát có thể bị lệch 1 - 2 giây do người tạo file LRC căn chỉnh chưa chuẩn, hoặc do bản nhạc trên Spotify có độ dài đoạn dạo đầu (intro) khác với bản MV/YouTube mà người tạo LRC dùng để canh lời. Đây là đặc tính dữ liệu từ nguồn cộng đồng của riêng bài hát đó, không phải lỗi của widget.
 
 ---
 ---
@@ -254,3 +257,6 @@ Remove-Item "publish\temp" -Recurse -Force
    - Because community builds are not code-signed with expensive enterprise certificates, click **More info** -> **Run anyway**.
 3. **No lyrics displayed?**
    - If a track does not exist on LRCLIB or QQ Music database, the lyrics area remains gracefully hidden.
+4. **Synced lyrics timing offset / delay on certain songs?**
+   - Lyrics are sourced from open community databases (LRCLIB, QQ Music). Line timestamps in LRC files are contributed and timed manually by volunteers.
+   - A small number of tracks may have a slight timing offset (1-2 seconds) if the contributor timed the lyrics against a different audio release (e.g., music video vs. album master) or pressed timestamps with human reaction lag. This is an artifact of the external community source for that specific song rather than a widget defect.

@@ -109,6 +109,13 @@ Nhấp chuột phải vào khoảng trống bất kỳ trên widget để mở m
    - Một số bài hát quá mới hoặc bản cover/remix không chính thức có thể chưa
      có lời đồng bộ trên cơ sở dữ liệu LRCLIB hoặc QQ Music. Widget sẽ tự động
      ẩn dòng lời nếu không tìm thấy.
+4. Lời bài hát bị lệch nhịp / trễ (Delay) ở một số bài:
+   - Lời bài hát được lấy từ cơ sở dữ liệu mở cộng đồng (LRCLIB, QQ Music).
+     Mốc thời gian (timestamp) của file LRC do người dùng tự gõ và căn chỉnh bằng tai.
+   - Một số bài hát có thể bị lệch 1 - 2 giây do người tạo file LRC căn chỉnh
+     chưa chuẩn, hoặc do bản nhạc trên Spotify có độ dài đoạn dạo đầu (intro)
+     khác với bản MV/YouTube mà người tạo LRC dùng để canh lời. Đây là đặc tính
+     dữ liệu từ nguồn cộng đồng của riêng bài hát đó, không phải lỗi của widget.
 
 
 ================================================================================
@@ -198,5 +205,12 @@ Right-click on any blank spot of the widget:
 3. No lyrics for certain songs:
    - If a song has no synced lyrics on LRCLIB/QQ Music, the lyric line is
      gracefully hidden.
+4. Synced lyrics timing offset / delay on certain songs:
+   - Lyrics are sourced from community databases (LRCLIB, QQ Music). The line
+     timestamps in LRC files are contributed and timed manually by volunteers.
+   - A few tracks may have a slight timing offset (1-2 seconds) if the contributor
+     timed the lyrics against a different audio cut (e.g. music video vs. album release)
+     or pressed timestamps with slight human delay. This is an artifact of the
+     external community source for that specific song rather than a widget defect.
 
 ================================================================================

@@ -1,0 +1,264 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>So sánh trực quan: Có DropShadow vs Không DropShadow</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+            padding: 30px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 820px;
+        }
+        h1 {
+            color: #1ED760;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        p.subtitle {
+            color: #a0a0a0;
+            font-size: 13px;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: #1e1e1e;
+            border: 1px solid #333333;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 14px;
+        }
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e0e0e0;
+        }
+        .btn-anim {
+            background: #1a3824;
+            color: #1ED760;
+            border: 1px solid #1ED760;
+            border-radius: 6px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-anim:hover {
+            background: #1ED760;
+            color: #000;
+        }
+        .sample-row {
+            background: #141414;
+            border: 1px solid #2e2e2e;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+        }
+        .sample-row.active {
+            border-color: #1ED760;
+            background: #181d19;
+        }
+        .sample-label {
+            width: 220px;
+            flex-shrink: 0;
+        }
+        .tag-title {
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .tag-sub {
+            font-size: 11px;
+            color: #777;
+            margin-top: 2px;
+        }
+        .sample-view {
+            flex-grow: 1;
+            overflow: hidden;
+            height: 26px;
+            position: relative;
+            background: #181818;
+            border-radius: 4px;
+            padding: 2px 8px;
+            display: flex;
+            align-items: center;
+        }
+        .lyric-text {
+            font-size: 12.5px;
+            font-weight: 600;
+            white-space: nowrap;
+            color: #ffffff;
+            display: inline-block;
+        }
+        /* Style 1: Before - DropShadow Gaussian Blur */
+        .style-before {
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 0 2px rgba(0,0,0,0.8);
+        }
+        /* Style 2: Current - Pure Crisp DirectWrite */
+        .style-crisp {
+            text-shadow: none;
+        }
+        /* Style 3: Hard Shadow 0px blur */
+        .style-hard {
+            text-shadow: 0 1px 0 #000000;
+        }
+
+        /* Animation */
+        @keyframes scrollText {
+            0% { transform: translateX(0); }
+            50% { transform: translateX(-160px); }
+            100% { transform: translateX(0); }
+        }
+        .animating {
+            animation: scrollText 4s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+        }
+
+        /* Zoom section */
+        .zoom-box {
+            background: #0d0d0d;
+            border: 1px solid #2a2a2a;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        .zoom-title {
+            font-size: 11px;
+            margin-bottom: 8px;
+        }
+        .zoom-text {
+            font-size: 26px;
+            font-weight: 600;
+            color: #ffffff;
+            letter-spacing: 0.5px;
+        }
+
+        /* Technical summary */
+        .summary-box {
+            background: #16241a;
+            border: 1px solid #274931;
+            border-radius: 8px;
+            padding: 14px 18px;
+            font-size: 12.5px;
+            line-height: 1.6;
+            color: #d8d8d8;
+        }
+        .summary-box strong { color: #1ED760; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>SO SÁNH TRỰC QUAN: CÓ DROPSHADOW VS KHÔNG DROPSHADOW</h1>
+    <p class="subtitle">Trực quan hóa sự khác biệt giữa hai kiểu hiển thị trên màn hình máy tính.</p>
+
+    <!-- Kích thước thực tế -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">1. KÍCH THƯỚC THỰC TẾ TRÊN TASKBAR (Font 11.5pt – 12.5px)</span>
+            <button class="btn-anim" id="btnToggle" onclick="toggleAnimation()">▶ Chạy thử chuyển động (Animation)</button>
+        </div>
+
+        <!-- Before -->
+        <div class="sample-row">
+            <div class="sample-label">
+                <div class="tag-title" style="color: #ff6b6b;">TRƯỚC ĐÂY (Có DropShadow)</div>
+                <div class="tag-sub">BlurRadius=4 | GPU ~3.4%</div>
+            </div>
+            <div class="sample-view">
+                <span class="lyric-text style-before" id="txtBefore">♪ Em của ngày hôm qua úa u... Xin hãy xua tan đi em, bóng tối nơi này</span>
+            </div>
+        </div>
+
+        <!-- Current -->
+        <div class="sample-row active">
+            <div class="sample-label">
+                <div class="tag-title" style="color: #1ED760;">HIỆN TẠI (Sắc nét Crisp)</div>
+                <div class="tag-sub">Không Blur | GPU ~0.0%</div>
+            </div>
+            <div class="sample-view">
+                <span class="lyric-text style-crisp" id="txtCurrent">♪ Em của ngày hôm qua úa u... Xin hãy xua tan đi em, bóng tối nơi này</span>
+            </div>
+        </div>
+
+        <!-- Hard Shadow -->
+        <div class="sample-row">
+            <div class="sample-label">
+                <div class="tag-title" style="color: #64b5f6;">LỰA CHỌN PHỤ (Bóng cứng 0px)</div>
+                <div class="tag-sub">BlurRadius=0 | GPU ~0.0%</div>
+            </div>
+            <div class="sample-view">
+                <span class="lyric-text style-hard" id="txtHard">♪ Em của ngày hôm qua úa u... Xin hãy xua tan đi em, bóng tối nơi này</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Phóng to 300% -->
+    <div class="card">
+        <div class="card-header">
+            <span class="card-title">2. PHÓNG TO 300% (Soi viền và nét chữ chi tiết)</span>
+        </div>
+
+        <div class="zoom-box">
+            <div class="zoom-title" style="color: #ff8a80;">[Trước đây] Bóng mờ 4px tạo quầng mờ đen bao bọc, chữ nhỏ dễ bị cảm giác 'đục' nét hoặc hơi lem:</div>
+            <div class="zoom-text style-before">♪ Nét chữ có bóng mờ đen (Blur Radius 4px)</div>
+        </div>
+
+        <div class="zoom-box">
+            <div class="zoom-title" style="color: #b9f6ca;">[Hiện tại] Nét chữ trắng nguyên bản, viền pixel sắc lẹm, tương đồng chuẩn font Windows Taskbar:</div>
+            <div class="zoom-text style-crisp">♪ Nét chữ sắc nét nguyên bản (Crisp Text)</div>
+        </div>
+    </div>
+
+    <!-- Tóm tắt -->
+    <div class="summary-box">
+        <strong>💡 TỔNG KẾT &amp; LỰA CHỌN CHO BẠN:</strong><br>
+        • <strong>Trước đây (Có DropShadow Blur):</strong> Giúp chữ nổi hơn nếu taskbar có hình nền sáng loang lổ. Nhưng nhược điểm là khi chữ cuộn ở 120 FPS, GPU liên tục phải tính toán làm mờ từng frame dẫn đến ăn 3.4% GPU Radeon 780M.<br>
+        • <strong>Hiện tại (Không DropShadow):</strong> Chữ sắc nét, sáng rõ, đồng nhất với font chữ của Tên bài hát, đồng hồ và các icon Windows. GPU rơi về 0.0%.<br>
+        • <strong>Nếu bạn muốn có bóng chống chìm nền:</strong> Chúng ta có thể dùng <em>Bóng cứng 0px (Hard Shadow)</em> — vừa có bóng đen tách chữ nổi bật, vừa giữ được 0.0% GPU!
+    </div>
+</div>
+
+<script>
+    let isAnim = false;
+    function toggleAnimation() {
+        isAnim = !isAnim;
+        const btn = document.getElementById('btnToggle');
+        const elements = [document.getElementById('txtBefore'), document.getElementById('txtCurrent'), document.getElementById('txtHard')];
+        
+        elements.forEach(el => {
+            if (isAnim) {
+                el.classList.add('animating');
+            } else {
+                el.classList.remove('animating');
+            }
+        });
+
+        if (isAnim) {
+            btn.innerText = '⏹ Dừng chuyển động';
+            btn.style.background = '#4a2e2e';
+            btn.style.borderColor = '#ff8a80';
+            btn.style.color = '#ff8a80';
+        } else {
+            btn.innerText = '▶ Chạy thử chuyển động (Animation)';
+            btn.style.background = '#1a3824';
+            btn.style.borderColor = '#1ED760';
+            btn.style.color = '#1ED760';
+        }
+    }
+</script>
+</body>
+</html>
