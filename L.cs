@@ -39,6 +39,7 @@ internal static class L
     public static string BtnRepeat => Pt ? "Repetição" : "Repeat";
     public static string BtnVolume => Pt ? "Volume" : "Volume";
     public static string ProgressBar => Pt ? "Barra de progresso" : "Progress bar";
+    public static string DynamicColor => Pt ? "Cor dinâmica do álbum" : "Dynamic album color";
     public static string ScrollTitleOnce => Pt ? "Deslizar título só uma vez" : "Scroll title only once";
     public static string LyricsMenu => Pt ? "Letras" : "Lyrics";
     public static string ShowLyrics => Pt ? "Mostrar letras" : "Show lyrics";

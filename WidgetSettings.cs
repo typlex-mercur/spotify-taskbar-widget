@@ -73,6 +73,9 @@ public class WidgetSettings
     public bool ShowRepeat { get; set; } = true;
     public bool ShowVolume { get; set; } = false;
 
+    /// <summary>Đổi màu thanh tiến trình và hiệu ứng theo bìa album (Dynamic palette).</summary>
+    public bool DynamicAlbumColor { get; set; } = true;
+
     private static readonly object SaveLock = new();
 
     private static string Dir =>

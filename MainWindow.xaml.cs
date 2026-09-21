@@ -26,7 +26,13 @@ public partial class MainWindow : Window
     private static readonly Geometry CheckCircleGeo = Geometry.Parse("M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8zm11.748-1.97a.75.75 0 0 0-1.06-1.06l-4.47 4.44-1.405-1.406a.75.75 0 1 0-1.061 1.06l2.466 2.467 5.53-5.5z");
 
     // Cores do Spotify; as neutras dependem do tema da barra (claro/escuro)
-    private static readonly Brush SpotifyGreen = new SolidColorBrush(Color.FromRgb(0x1E, 0xD7, 0x60));
+    private static readonly Color SpotifyGreenColor = Color.FromRgb(0x1E, 0xD7, 0x60);
+    private static readonly Brush SpotifyGreen = new SolidColorBrush(SpotifyGreenColor);
+    private readonly SolidColorBrush _accentBrush = new(SpotifyGreenColor);
+    private readonly SolidColorBrush _accentHoverBrush = new(LightenColor(SpotifyGreenColor, 0.35));
+    private Color _currentAccentColor = SpotifyGreenColor;
+    private byte[]? _lastArtBytes;
+    private int _trackSlideDirection;
     private Brush Subdued = new SolidColorBrush(Color.FromRgb(0xB3, 0xB3, 0xB3));
     private Brush DimWhite = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
     private Brush _progressFillNormal = Brushes.White;
@@ -211,6 +217,7 @@ public partial class MainWindow : Window
         BtnRepeatMenu.Header = L.BtnRepeat;
         BtnVolumeMenu.Header = L.BtnVolume;
         ProgressMenu.Header = L.ProgressBar;
+        DynamicColorMenu.Header = L.DynamicColor;
         LyricsMenuItem.Header = L.LyricsMenu;
         ShowLyricsMenu.Header = L.ShowLyrics;
         LyricsUnifiedMenu.Header = L.LyricsModeUnified;
@@ -359,6 +366,8 @@ public partial class MainWindow : Window
     private void ApplySettingsUi()
     {
         ProgressMenu.IsChecked = _settings.ShowProgress;
+        DynamicColorMenu.IsChecked = _settings.DynamicAlbumColor;
+        UpdateProgressFillColor();
         ShowLyricsMenu.IsChecked = _settings.ShowLyrics;
         LyricsUnifiedMenu.IsChecked = _settings.ShowLyrics && _settings.UnifiedLyrics;
         LyricsSeparateMenu.IsChecked = _settings.ShowLyrics && !_settings.UnifiedLyrics;
@@ -1226,6 +1235,19 @@ public partial class MainWindow : Window
             // acessibilidade do Spotify; o SMTC serve de rede de segurança.
             string key = track.Title + "|" + track.Artist;
             bool keyChanged = key != _lastTrackKey;
+            if (keyChanged && _trackSlideDirection != 0)
+            {
+                double startX = _trackSlideDirection * 18.0;
+                _trackSlideDirection = 0;
+                TextStackShift.X = startX;
+                TextStack.Opacity = 0.2;
+                var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                var slide = new DoubleAnimation(startX, 0, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease };
+                var fade = new DoubleAnimation(0.2, 1.0, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease };
+                TextStackShift.BeginAnimation(TranslateTransform.XProperty, slide);
+                TextStack.BeginAnimation(UIElement.OpacityProperty, fade);
+            }
+
             if (keyChanged || _uiaDirty || DateTime.UtcNow - _lastUiaStateAt > TimeSpan.FromSeconds(5))
             {
                 _uiaDirty = false;
@@ -1251,7 +1273,12 @@ public partial class MainWindow : Window
             // texto do botão do Spotify pode demorar vários segundos a atualizar
             if (liked == false && DateTime.UtcNow - _likedOptimisticAt < TimeSpan.FromSeconds(8))
                 liked = true;
+            bool justLiked = liked == true && _liked != true;
             _liked = liked;
+            if (justLiked)
+            {
+                AnimateLikePop();
+            }
 
             ApplyRepeatVisual(repeatMode);
 
@@ -1277,10 +1304,11 @@ public partial class MainWindow : Window
 
             ApplyShuffleVisual(mode);
 
-            if (keyChanged || _artDirty)
+            // Capa: só reler se mudou de faixa ou ainda não tinha sido carregada
+            if (_artDirty || keyChanged)
             {
-                _lastTrackKey = key;
                 _artDirty = false;
+                _lastTrackKey = key;
                 byte[]? bytes = null;
                 try { bytes = await _media.GetThumbnailAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
                 catch (TimeoutException) { }
@@ -1291,6 +1319,8 @@ public partial class MainWindow : Window
                     // de faixa — não podem rebentar o refresh inteiro
                     try { art = ToBitmap(bytes); } catch { }
                 }
+                _lastArtBytes = bytes;
+                UpdateDynamicColor(bytes);
                 SetAlbumArt(art);
             }
         }
@@ -1444,8 +1474,16 @@ public partial class MainWindow : Window
         _basePositionAt = DateTime.UtcNow;
         await _media.TogglePlayPauseAsync();
     }
-    private async void Next_Click(object sender, RoutedEventArgs e) => await _media.NextAsync();
-    private async void Prev_Click(object sender, RoutedEventArgs e) => await _media.PreviousAsync();
+    private async void Next_Click(object sender, RoutedEventArgs e)
+    {
+        _trackSlideDirection = 1;
+        await _media.NextAsync();
+    }
+    private async void Prev_Click(object sender, RoutedEventArgs e)
+    {
+        _trackSlideDirection = -1;
+        await _media.PreviousAsync();
+    }
 
     private async void Shuffle_Click(object sender, RoutedEventArgs e)
     {
@@ -1506,6 +1544,7 @@ public partial class MainWindow : Window
         LikeIcon.Data = CheckCircleGeo;
         LikeIcon.Fill = SpotifyGreen;
         LikeButton.ToolTip = L.TipLiked;
+        AnimateLikePop();
 
         bool ok = await Task.Run(() => _uia.AddToFavorites());
         if (!ok)
@@ -1699,8 +1738,7 @@ public partial class MainWindow : Window
         VolumeIcon.Fill = Subdued;
         ArtPlaceholder.Foreground = DimWhite;
         ProgressTrack.Background = new SolidColorBrush(light ? Color.FromArgb(0x2E, 0x00, 0x00, 0x00) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
-        if (!ProgressTrack.IsMouseOver)
-            ProgressFill.Background = _progressFillNormal;
+        UpdateProgressFillColor();
 
         // Botão play: círculo branco no escuro, preto no claro (como o Spotify)
         PlayPauseButton.Background = light ? Brushes.Black : Brushes.White;
@@ -1777,6 +1815,8 @@ public partial class MainWindow : Window
 
         double fraction = Math.Clamp(pos.TotalMilliseconds / _duration.TotalMilliseconds, 0, 1);
         ProgressFill.Width = fraction * ProgressTrack.ActualWidth;
+        if (ProgressThumb != null)
+            Canvas.SetLeft(ProgressThumb, Math.Clamp(ProgressFill.Width - 3, 0, Math.Max(0, ProgressTrack.ActualWidth - 6)));
     }
 
     private async void Progress_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -1798,8 +1838,174 @@ public partial class MainWindow : Window
         await _media.SeekAsync(target);
     }
 
-    private void Progress_MouseEnter(object sender, MouseEventArgs e) => ProgressFill.Background = SpotifyGreen;
-    private void Progress_MouseLeave(object sender, MouseEventArgs e) => ProgressFill.Background = _progressFillNormal;
+    private void Progress_MouseEnter(object sender, MouseEventArgs e)
+    {
+        ProgressFill.Background = _settings.DynamicAlbumColor ? _accentHoverBrush : SpotifyGreen;
+        var anim = new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(120))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        ProgressThumb.BeginAnimation(UIElement.OpacityProperty, anim);
+    }
+
+    private void Progress_MouseLeave(object sender, MouseEventArgs e)
+    {
+        ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
+        var anim = new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(150))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        ProgressThumb.BeginAnimation(UIElement.OpacityProperty, anim);
+    }
+
+    private void DynamicColor_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.DynamicAlbumColor = DynamicColorMenu.IsChecked;
+        _settings.Save();
+        if (!_settings.DynamicAlbumColor)
+            SetAccentColor(SpotifyGreenColor);
+        else
+            UpdateDynamicColor(_lastArtBytes);
+
+        UpdateProgressFillColor();
+    }
+
+    private void UpdateProgressFillColor()
+    {
+        if (ProgressTrack.IsMouseOver)
+            ProgressFill.Background = _settings.DynamicAlbumColor ? _accentHoverBrush : SpotifyGreen;
+        else
+            ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
+    }
+
+    private void AnimateLikePop()
+    {
+        var scale = new ScaleTransform(1.0, 1.0);
+        LikeIcon.RenderTransformOrigin = new Point(0.5, 0.5);
+        LikeIcon.RenderTransform = scale;
+        var anim = new DoubleAnimationUsingKeyFrames();
+        anim.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
+        anim.KeyFrames.Add(new SplineDoubleKeyFrame(1.35, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(110)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
+        anim.KeyFrames.Add(new SplineDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(240)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+    }
+
+    private void UpdateDynamicColor(byte[]? bytes)
+    {
+        if (!_settings.DynamicAlbumColor || bytes == null || bytes.Length == 0)
+        {
+            SetAccentColor(SpotifyGreenColor);
+            return;
+        }
+
+        Task.Run(() =>
+        {
+            try
+            {
+                Color c = ExtractVibrantColor(bytes);
+                Dispatcher.InvokeAsync(() => SetAccentColor(c));
+            }
+            catch
+            {
+                Dispatcher.InvokeAsync(() => SetAccentColor(SpotifyGreenColor));
+            }
+        });
+    }
+
+    private static Color ExtractVibrantColor(byte[] bytes)
+    {
+        try
+        {
+            var bmp = new BitmapImage();
+            using (var ms = new MemoryStream(bytes))
+            {
+                bmp.BeginInit();
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 24;
+                bmp.StreamSource = ms;
+                bmp.EndInit();
+            }
+            bmp.Freeze();
+
+            var converted = new FormatConvertedBitmap(bmp, PixelFormats.Bgra32, null, 0);
+            converted.Freeze();
+
+            int width = converted.PixelWidth;
+            int height = converted.PixelHeight;
+            int stride = width * 4;
+            byte[] pixels = new byte[height * stride];
+            converted.CopyPixels(pixels, stride, 0);
+
+            Color bestColor = SpotifyGreenColor;
+            double bestScore = -1;
+
+            for (int y = 0; y < height; y += 2)
+            {
+                for (int x = 0; x < width; x += 2)
+                {
+                    int idx = y * stride + x * 4;
+                    byte b = pixels[idx];
+                    byte g = pixels[idx + 1];
+                    byte r = pixels[idx + 2];
+
+                    double rf = r / 255.0;
+                    double gf = g / 255.0;
+                    double bf = b / 255.0;
+
+                    double max = Math.Max(rf, Math.Max(gf, bf));
+                    double min = Math.Min(rf, Math.Min(gf, bf));
+                    double l = (max + min) / 2.0;
+
+                    if (l < 0.20 || l > 0.85) continue;
+
+                    double delta = max - min;
+                    double s = delta == 0 ? 0 : delta / (1.0 - Math.Abs(2.0 * l - 1.0));
+                    if (s < 0.25) continue;
+
+                    double score = s * 1.5 + (1.0 - Math.Abs(l - 0.55));
+                    if (score > bestScore)
+                    {
+                        bestScore = score;
+                        bestColor = Color.FromRgb(r, g, b);
+                    }
+                }
+            }
+            return bestColor;
+        }
+        catch
+        {
+            return SpotifyGreenColor;
+        }
+    }
+
+    private static Color LightenColor(Color c, double factor = 0.35)
+    {
+        byte r = (byte)Math.Clamp(c.R + (255 - c.R) * factor, 0, 255);
+        byte g = (byte)Math.Clamp(c.G + (255 - c.G) * factor, 0, 255);
+        byte b = (byte)Math.Clamp(c.B + (255 - c.B) * factor, 0, 255);
+        return Color.FromRgb(r, g, b);
+    }
+
+    private void SetAccentColor(Color target)
+    {
+        if (_currentAccentColor == target) return;
+        Color oldHover = LightenColor(_currentAccentColor, 0.35);
+        Color targetHover = LightenColor(target, 0.35);
+
+        var anim = new ColorAnimation(_currentAccentColor, target, TimeSpan.FromMilliseconds(350))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        var hoverAnim = new ColorAnimation(oldHover, targetHover, TimeSpan.FromMilliseconds(350))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        _currentAccentColor = target;
+        _accentBrush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
+        _accentHoverBrush.BeginAnimation(SolidColorBrush.ColorProperty, hoverAnim);
+    }
 
     private void Progress_MenuClick(object sender, RoutedEventArgs e)
     {
