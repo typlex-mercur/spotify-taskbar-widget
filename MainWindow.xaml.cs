@@ -150,6 +150,7 @@ public partial class MainWindow : Window
     private readonly object _anchorLock = new();
     private double? _widgetsRightPx;
     private double? _startLeftPx;
+    private double? _lastValidStartLeft;
     private double? _taskEndPx;
     private DateTime _lastAnchorQuery = DateTime.MinValue;
     private bool _anchorQueryRunning;
@@ -228,6 +229,11 @@ public partial class MainWindow : Window
         ApplyThemeIfChanged();
         RebuildMonitorMenu();
         _lastKnownLeftAligned = IsTaskbarLeftAligned();
+        if (_settings.MarginsCenter.TryGetValue(TrayIndex, out var initSm) && initSm.LastStartLeft > 0)
+        {
+            _lastValidStartLeft = initSm.LastStartLeft;
+            _startLeftPx = initSm.LastStartLeft;
+        }
         ApplySettingsUi();
         // As definições são partilhadas: quando outra janela grava, re-aplicar
         WidgetSettings.Changed += OnSettingsChanged;
@@ -567,6 +573,7 @@ public partial class MainWindow : Window
             {
                 _widgetsRightPx = null;
                 _startLeftPx = null;
+                _lastValidStartLeft = null;
                 _taskEndPx = null;
             }
         }
@@ -577,7 +584,7 @@ public partial class MainWindow : Window
             _lastKnownLeftAligned = isLeft;
             // Alignment mudou: invalidar âncoras para recalcular posição
             _lastAnchorQuery = DateTime.MinValue;
-            lock (_anchorLock) { _widgetsRightPx = null; _startLeftPx = null; _taskEndPx = null; }
+            lock (_anchorLock) { _widgetsRightPx = null; _startLeftPx = null; _lastValidStartLeft = null; _taskEndPx = null; }
         }
         RefreshAnchors(tray);
         double? widgetsRightPx, startLeftPx, taskEndPx;
@@ -620,7 +627,9 @@ public partial class MainWindow : Window
                 else
                 {
                     slotLeft = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
-                    slotRight = startLeftPx.HasValue ? (int)startLeftPx.Value - 8 : r.Left + (r.Right - r.Left) / 2 - 8;
+                    double? effStartLeft = startLeftPx ?? _lastValidStartLeft;
+                    if (!effStartLeft.HasValue && sm.LastStartLeft > 0) effStartLeft = sm.LastStartLeft;
+                    slotRight = effStartLeft.HasValue ? (int)effStartLeft.Value - 8 : r.Left + (r.Right - r.Left) / 2 - 8;
                 }
             }
             else
@@ -641,10 +650,11 @@ public partial class MainWindow : Window
             {
                 if (!isLeft)
                 {
-                    if (startLeftPx.HasValue && manualX < startLeftPx.Value)
+                    double? effStart = startLeftPx ?? _lastValidStartLeft;
+                    if (effStart.HasValue && manualX < effStart.Value)
                     {
                         // Widget posicionado à esquerda dos ícones centrados (entre tempo/widgets e Iniciar)
-                        rightLimitPx = (int)startLeftPx.Value - 8;
+                        rightLimitPx = (int)effStart.Value - 8;
                         leftPx = (int)Math.Max(r.Left + 4, Math.Min(manualX, rightLimitPx - winWidth));
                     }
                     else
@@ -667,9 +677,10 @@ public partial class MainWindow : Window
             }
             else if (!isLeft)
             {
+                double? effStart = startLeftPx ?? _lastValidStartLeft;
                 // Numa barra centrada o botão Iniciar existe sempre — âncora nula
                 // significa que a leitura ainda não chegou ou falhou.
-                if (!startLeftPx.HasValue && Visibility == Visibility.Visible)
+                if (!effStart.HasValue && Visibility == Visibility.Visible)
                 {
                     // Já estamos bem posicionados: FICAR QUIETO até as âncoras
                     // voltarem — esconder e reaparecer na borda esquerda (por cima
@@ -677,7 +688,7 @@ public partial class MainWindow : Window
                     leftPx = w.Left;
                     rightLimitPx = r.Right - 4;
                 }
-                else if (!startLeftPx.HasValue)
+                else if (!effStart.HasValue)
                 {
                     // Ainda sem posição (arranque / primeiro reveal): esperar em
                     // vez de posicionar às cegas; após o limite, fallback à esquerda
@@ -698,7 +709,7 @@ public partial class MainWindow : Window
                     // está à esquerda — alinhar a seguir ao botão de widgets/tempo;
                     // sem ele, à borda esquerda. Nunca invadir o botão Iniciar.
                     leftPx = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
-                    rightLimitPx = (int)startLeftPx.Value - 8;
+                    rightLimitPx = (int)effStart.Value - 8;
                 }
                 availPx = rightLimitPx - leftPx;
             }
@@ -1000,7 +1011,6 @@ public partial class MainWindow : Window
     /// Atualiza as âncoras da barra (botão de widgets e botão Iniciar) em background,
     /// no máximo a cada 5 segundos — as consultas de UI Automation não são gratuitas.
     /// </summary>
-    private int _startMissingReads;
 
     private void RefreshAnchors(IntPtr tray)
     {
@@ -1032,16 +1042,26 @@ public partial class MainWindow : Window
                     // O Iniciar existe sempre — uma leitura OK sem ele é suspeita;
                     // mas aceitar à 3ª seguida, senão um Iniciar realmente
                     // escondido (shells modificadas) congelava as âncoras todas
-                    if (!startLeft.HasValue && _startLeftPx.HasValue && ++_startMissingReads < 3)
-                        return;
-                    bool startVanished = !startLeft.HasValue && _startLeftPx.HasValue;
-                    _startMissingReads = 0;
-                    // Se o Iniciar sumiu (estado anómalo da shell), as outras
-                    // âncoras nulas provavelmente só falharam JUNTAS — manter as
-                    // antigas; com leitura completa, null = desativado mesmo
-                    _widgetsRightPx = startVanished ? (widgetsRight ?? _widgetsRightPx) : widgetsRight;
-                    _taskEndPx = startVanished ? (taskButtonsRight ?? _taskEndPx) : taskButtonsRight;
-                    _startLeftPx = startLeft;
+                    if (widgetsRight.HasValue)
+                        _widgetsRightPx = widgetsRight;
+                    if (taskButtonsRight.HasValue)
+                        _taskEndPx = taskButtonsRight;
+
+                    if (startLeft.HasValue)
+                    {
+                        _startLeftPx = startLeft;
+                        _lastValidStartLeft = startLeft.Value;
+                        bool isLeftCur = IsTaskbarLeftAligned();
+                        var marginsDictCur = isLeftCur ? _settings.MarginsLeft : _settings.MarginsCenter;
+                        if (marginsDictCur.TryGetValue(TrayIndex, out var curSm) && !curSm.IsRightSlot)
+                        {
+                            curSm.LastStartLeft = startLeft.Value;
+                        }
+                    }
+                    else if (_lastValidStartLeft.HasValue)
+                    {
+                        _startLeftPx = _lastValidStartLeft;
+                    }
                 }
             }
             finally
@@ -2634,14 +2654,15 @@ public partial class MainWindow : Window
                     bool isRightSlot = false;
                     if (!isLeft)
                     {
-                        int centerDivider = startLeftPx.HasValue 
-                            ? (int)startLeftPx.Value 
+                        double? effStart = startLeftPx ?? _lastValidStartLeft;
+                        int centerDivider = effStart.HasValue 
+                            ? (int)effStart.Value 
                             : (r.Left + (r.Right - r.Left) / 2);
                         if (w.Left < centerDivider)
                         {
                             isRightSlot = false;
                             slotLeft = widgetsRightPx.HasValue ? (int)widgetsRightPx.Value + 8 : r.Left + 12;
-                            slotRight = startLeftPx.HasValue ? (int)startLeftPx.Value - 8 : r.Left + (r.Right - r.Left) / 2 - 8;
+                            slotRight = effStart.HasValue ? (int)effStart.Value - 8 : r.Left + (r.Right - r.Left) / 2 - 8;
                         }
                         else
                         {
@@ -2665,7 +2686,8 @@ public partial class MainWindow : Window
                         GapLeft = gapLeft,
                         GapRight = gapRight,
                         IsRightSlot = isRightSlot,
-                        CustomTextWidth = TextStack.Width
+                        CustomTextWidth = TextStack.Width,
+                        LastStartLeft = (!isLeft && (startLeftPx ?? _lastValidStartLeft).HasValue) ? (startLeftPx ?? _lastValidStartLeft)!.Value : 0
                     };
 
                     var marginsDict = isLeft ? _settings.MarginsLeft : _settings.MarginsCenter;

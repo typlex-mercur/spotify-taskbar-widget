@@ -148,4 +148,5 @@ public class SlotMargins
     public double GapRight { get; set; } = 16;
     public bool IsRightSlot { get; set; } = false;
     public double CustomTextWidth { get; set; } = 0;
+    public double LastStartLeft { get; set; } = 0;
 }
