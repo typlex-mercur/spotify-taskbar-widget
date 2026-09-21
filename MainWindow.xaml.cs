@@ -1402,6 +1402,7 @@ public partial class MainWindow : Window
         {
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.DecodePixelWidth = 96;
             bmp.StreamSource = ms;
             bmp.EndInit();
         }
@@ -1473,7 +1474,7 @@ public partial class MainWindow : Window
         _isPlayingUi = !_isPlayingUi;
         _playToggledAt = DateTime.UtcNow;
         SetPlayPauseIcon(_isPlayingUi);
-        AnimateElementPop(PlayPauseButton, 1.15);
+        AnimateElementPop(PlayPauseButton, 1.06);
         if (!_isPlayingUi)
             _basePosition += DateTime.UtcNow - _basePositionAt; // congelar posição
         else
@@ -1486,18 +1487,20 @@ public partial class MainWindow : Window
     }
     private async void Next_Click(object sender, RoutedEventArgs e)
     {
+        AnimateElementPop(NextButton, 1.08);
         _trackSlideDirection = 1;
         await _media.NextAsync();
     }
     private async void Prev_Click(object sender, RoutedEventArgs e)
     {
+        AnimateElementPop(PrevButton, 1.08);
         _trackSlideDirection = -1;
         await _media.PreviousAsync();
     }
 
     private async void Shuffle_Click(object sender, RoutedEventArgs e)
     {
-        AnimateElementPop(ShuffleButton, 1.25);
+        AnimateElementPop(ShuffleButton, 1.08);
         bool isMin = Interop.IsSpotifyMinimized();
         if (isMin)
         {
@@ -1537,7 +1540,7 @@ public partial class MainWindow : Window
 
     private async void Repeat_Click(object sender, RoutedEventArgs e)
     {
-        AnimateElementPop(RepeatButton, 1.25);
+        AnimateElementPop(RepeatButton, 1.08);
         var next = _currentRepeatMode switch
         {
             RepeatMode.Off => RepeatMode.Context,
@@ -1835,13 +1838,18 @@ public partial class MainWindow : Window
 
     /// <summary>O Spotify só publica a posição de vez em quando; entre leituras,
     /// a posição é interpolada com o relógio local enquanto está a tocar.</summary>
+    private bool _isScrubbing = false;
+    private TimeSpan _scrubTarget = TimeSpan.Zero;
+
+    /// <summary>Desenha a barra de progresso. Chamado a cada segundo pelo timer;
+    /// a posição é interpolada com o relógio local enquanto está a tocar.</summary>
     private void UpdateProgressUi()
     {
         bool show = _settings.ShowProgress && _spotifyPresent && _duration > TimeSpan.Zero;
         var wanted = show ? Visibility.Visible : Visibility.Collapsed;
         if (ProgressTrack.Visibility != wanted)
             ProgressTrack.Visibility = wanted;
-        if (!show) return;
+        if (!show || _isScrubbing) return;
 
         TimeSpan pos = _basePosition;
         if (_isPlayingUi)
@@ -1853,23 +1861,83 @@ public partial class MainWindow : Window
             Canvas.SetLeft(ProgressThumb, Math.Clamp(ProgressFill.Width - 3, 0, Math.Max(0, ProgressTrack.ActualWidth - 6)));
     }
 
-    private async void Progress_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void Progress_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (_moveMode) return; // em modo mover, o arrasto tem prioridade
         e.Handled = true;      // não tratar como clique para abrir o Spotify
 
         if (_duration <= TimeSpan.Zero || ProgressTrack.ActualWidth <= 0) return;
-        double fraction = Math.Clamp(e.GetPosition(ProgressTrack).X / ProgressTrack.ActualWidth, 0, 1);
-        var target = TimeSpan.FromTicks((long)(_duration.Ticks * fraction));
+        _isScrubbing = true;
+        ProgressTrack.CaptureMouse();
+        AnimateThumbScale(1.3);
+        UpdateScrubPosition(e.GetPosition(ProgressTrack).X);
+    }
 
-        // Atualização otimista para a barra responder já; a janela de graça
-        // impede snapshots pré-salto de a fazer recuar nos segundos seguintes
+    private void Progress_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isScrubbing) return;
+        UpdateScrubPosition(e.GetPosition(ProgressTrack).X);
+    }
+
+    private async void Progress_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isScrubbing) return;
+        _isScrubbing = false;
+        ProgressTrack.ReleaseMouseCapture();
+        AnimateThumbScale(1.0);
+
+        UpdateScrubPosition(e.GetPosition(ProgressTrack).X);
+
         _seekAt = DateTime.UtcNow;
-        _basePosition = target;
+        _basePosition = _scrubTarget;
         _basePositionAt = DateTime.UtcNow;
         UpdateProgressUi();
 
-        await _media.SeekAsync(target);
+        if (!ProgressTrack.IsMouseOver)
+        {
+            ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
+            var anim = new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(150))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            ProgressThumb.BeginAnimation(UIElement.OpacityProperty, anim);
+        }
+
+        await _media.SeekAsync(_scrubTarget);
+    }
+
+    private void Progress_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_isScrubbing)
+        {
+            _isScrubbing = false;
+            AnimateThumbScale(1.0);
+            UpdateProgressUi();
+        }
+    }
+
+    private void UpdateScrubPosition(double mouseX)
+    {
+        if (_duration <= TimeSpan.Zero || ProgressTrack.ActualWidth <= 0) return;
+        double fraction = Math.Clamp(mouseX / ProgressTrack.ActualWidth, 0, 1);
+        _scrubTarget = TimeSpan.FromTicks((long)(_duration.Ticks * fraction));
+        ProgressFill.Width = fraction * ProgressTrack.ActualWidth;
+        if (ProgressThumb != null)
+        {
+            Canvas.SetLeft(ProgressThumb, Math.Clamp(ProgressFill.Width - 3, 0, Math.Max(0, ProgressTrack.ActualWidth - 6)));
+            ProgressThumb.Opacity = 1.0;
+        }
+    }
+
+    private void AnimateThumbScale(double targetScale)
+    {
+        if (ProgressThumbScale == null) return;
+        var anim = new DoubleAnimation(targetScale, TimeSpan.FromMilliseconds(100))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        ProgressThumbScale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+        ProgressThumbScale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
     }
 
     private void Progress_MouseEnter(object sender, MouseEventArgs e)
@@ -1884,6 +1952,7 @@ public partial class MainWindow : Window
 
     private void Progress_MouseLeave(object sender, MouseEventArgs e)
     {
+        if (_isScrubbing) return;
         ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
         var anim = new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(150))
         {
@@ -1912,20 +1981,26 @@ public partial class MainWindow : Window
             ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
     }
 
-    private static void AnimateElementPop(FrameworkElement element, double peakScale = 1.3)
+    private static void AnimateElementPop(FrameworkElement element, double peakScale = 1.08)
     {
         var scale = new ScaleTransform(1.0, 1.0);
         element.RenderTransformOrigin = new Point(0.5, 0.5);
         element.RenderTransform = scale;
-        var anim = new DoubleAnimationUsingKeyFrames();
+        var anim = new DoubleAnimationUsingKeyFrames { FillBehavior = FillBehavior.Stop };
         anim.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        anim.KeyFrames.Add(new SplineDoubleKeyFrame(peakScale, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(110)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
-        anim.KeyFrames.Add(new SplineDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(240)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
+        anim.KeyFrames.Add(new SplineDoubleKeyFrame(peakScale, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(90)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
+        anim.KeyFrames.Add(new SplineDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(200)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
+        anim.Completed += (_, _) =>
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            element.RenderTransform = Transform.Identity;
+        };
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
     }
 
-    private void AnimateLikePop() => AnimateElementPop(LikeIcon, 1.35);
+    private void AnimateLikePop() => AnimateElementPop(LikeIcon, 1.15);
 
     private void UpdateDynamicColor(byte[]? bytes)
     {

@@ -21,7 +21,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="btnRoot" Background="Transparent" CornerRadius="13"
-                                Width="26" Height="26" RenderTransformOrigin="0.5,0.5">
+                                Width="26" Height="26" Opacity="0.75" RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
                                 <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
                             </Border.RenderTransform>
@@ -30,18 +30,21 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Trigger.EnterActions>
-                                    <BeginStoryboard>
+                                    <BeginStoryboard x:Name="IconHoverIn">
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="btnRoot"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             To="1.0" Duration="0:0:0.12"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnRoot"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                             To="1.15" Duration="0:0:0.12">
+                                                             To="1.08" Duration="0:0:0.12">
                                                 <DoubleAnimation.EasingFunction>
                                                     <CubicEase EasingMode="EaseOut"/>
                                                 </DoubleAnimation.EasingFunction>
                                             </DoubleAnimation>
                                             <DoubleAnimation Storyboard.TargetName="btnRoot"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                             To="1.15" Duration="0:0:0.12">
+                                                             To="1.08" Duration="0:0:0.12">
                                                 <DoubleAnimation.EasingFunction>
                                                     <CubicEase EasingMode="EaseOut"/>
                                                 </DoubleAnimation.EasingFunction>
@@ -50,8 +53,12 @@
                                     </BeginStoryboard>
                                 </Trigger.EnterActions>
                                 <Trigger.ExitActions>
-                                    <BeginStoryboard>
+                                    <StopStoryboard BeginStoryboardName="IconHoverIn"/>
+                                    <BeginStoryboard x:Name="IconHoverOut">
                                         <Storyboard>
+                                            <DoubleAnimation Storyboard.TargetName="btnRoot"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             To="0.75" Duration="0:0:0.16"/>
                                             <DoubleAnimation Storyboard.TargetName="btnRoot"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
                                                              To="1.0" Duration="0:0:0.16">
@@ -72,28 +79,22 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Trigger.EnterActions>
-                                    <BeginStoryboard>
+                                    <BeginStoryboard x:Name="IconPressIn">
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="btnRoot"
+                                                             Storyboard.TargetProperty="Opacity"
+                                                             To="1.0" Duration="0:0:0.04"/>
+                                            <DoubleAnimation Storyboard.TargetName="btnRoot"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                             To="0.88" Duration="0:0:0.06"/>
+                                                             To="0.94" Duration="0:0:0.06"/>
                                             <DoubleAnimation Storyboard.TargetName="btnRoot"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                             To="0.88" Duration="0:0:0.06"/>
+                                                             To="0.94" Duration="0:0:0.06"/>
                                         </Storyboard>
                                     </BeginStoryboard>
                                 </Trigger.EnterActions>
                                 <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="btnRoot"
-                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                             To="1.15" Duration="0:0:0.08"/>
-                                            <DoubleAnimation Storyboard.TargetName="btnRoot"
-                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                             To="1.15" Duration="0:0:0.08"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
+                                    <StopStoryboard BeginStoryboardName="IconPressIn"/>
                                 </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -123,7 +124,7 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Trigger.EnterActions>
-                                    <BeginStoryboard>
+                                    <BeginStoryboard x:Name="PlayHoverIn">
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="bg"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
@@ -143,7 +144,8 @@
                                     </BeginStoryboard>
                                 </Trigger.EnterActions>
                                 <Trigger.ExitActions>
-                                    <BeginStoryboard>
+                                    <StopStoryboard BeginStoryboardName="PlayHoverIn"/>
+                                    <BeginStoryboard x:Name="PlayHoverOut">
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="bg"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
@@ -165,7 +167,7 @@
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
                                 <Trigger.EnterActions>
-                                    <BeginStoryboard>
+                                    <BeginStoryboard x:Name="PlayPressIn">
                                         <Storyboard>
                                             <DoubleAnimation Storyboard.TargetName="bg"
                                                              Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
@@ -177,16 +179,7 @@
                                     </BeginStoryboard>
                                 </Trigger.EnterActions>
                                 <Trigger.ExitActions>
-                                    <BeginStoryboard>
-                                        <Storyboard>
-                                            <DoubleAnimation Storyboard.TargetName="bg"
-                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
-                                                             To="1.08" Duration="0:0:0.08"/>
-                                            <DoubleAnimation Storyboard.TargetName="bg"
-                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
-                                                             To="1.08" Duration="0:0:0.08"/>
-                                        </Storyboard>
-                                    </BeginStoryboard>
+                                    <StopStoryboard BeginStoryboardName="PlayPressIn"/>
                                 </Trigger.ExitActions>
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -545,16 +538,24 @@
                 </Button>
             </StackPanel>
 
-            <!-- Barra de progresso da música (clique para saltar) -->
+            <!-- Barra de progresso da música (clique ou arraste para navegar) -->
             <Border x:Name="ProgressTrack" Grid.Row="1" Height="3" CornerRadius="1.5"
                     Background="#33FFFFFF" Margin="1,2,1,3" Cursor="Hand"
                     MouseLeftButtonDown="Progress_MouseLeftButtonDown"
+                    MouseLeftButtonUp="Progress_MouseLeftButtonUp"
+                    MouseMove="Progress_MouseMove"
+                    LostMouseCapture="Progress_LostMouseCapture"
                     MouseEnter="Progress_MouseEnter" MouseLeave="Progress_MouseLeave">
                 <Canvas ClipToBounds="False">
                     <Border x:Name="ProgressFill" Height="3" CornerRadius="1.5" Background="White"
                             HorizontalAlignment="Left" Width="0"/>
                     <Ellipse x:Name="ProgressThumb" Width="6" Height="6" Fill="White"
-                             Canvas.Left="0" Canvas.Top="-1.5" Opacity="0" IsHitTestVisible="False"/>
+                             Canvas.Left="0" Canvas.Top="-1.5" Opacity="0" IsHitTestVisible="False"
+                             RenderTransformOrigin="0.5,0.5">
+                        <Ellipse.RenderTransform>
+                            <ScaleTransform x:Name="ProgressThumbScale" ScaleX="1.0" ScaleY="1.0"/>
+                        </Ellipse.RenderTransform>
+                    </Ellipse>
                 </Canvas>
             </Border>
 
