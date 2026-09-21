@@ -129,7 +129,11 @@ public partial class MainWindow : Window
     private DateTime _playToggledAt = DateTime.MinValue;
     private DateTime _likedOptimisticAt = DateTime.MinValue;
     private DateTime _shuffleToggledAt = DateTime.MinValue;
+    private DateTime _repeatToggledAt = DateTime.MinValue;
     private DateTime _seekAt = DateTime.MinValue;
+
+    private RepeatMode _currentRepeatMode = RepeatMode.Off;
+    private ShuffleMode _currentShuffleMode = ShuffleMode.Off;
 
     private bool AcceptPlayingState(bool incoming) =>
         incoming == _isPlayingUi || DateTime.UtcNow - _playToggledAt > TimeSpan.FromSeconds(2);
@@ -229,13 +233,6 @@ public partial class MainWindow : Window
         AutoStartMenu.Header = L.AutoStart;
         ExitMenu.Header = L.Exit;
 
-        PrevButton.ToolTip = L.TipPrev;
-        PlayPauseButton.ToolTip = L.TipPlayPause;
-        NextButton.ToolTip = L.TipNext;
-        VolumeButton.ToolTip = L.TipVolume;
-        RepeatButton.ToolTip = L.TipRepeat;
-        ShuffleButton.ToolTip = L.TipShuffle;
-        LikeButton.ToolTip = L.TipLikeAdd;
         LauncherPanel.ToolTip = L.TipOpenSpotify;
         LauncherText.Text = L.OpenSpotify;
         ArtistText.Text = L.NothingPlaying;
@@ -1268,7 +1265,7 @@ public partial class MainWindow : Window
                 _ = SettleStateAsync(); // re-ler até o Spotify renderizar a barra da faixa nova
                 _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.InvokeAsync(Interop.TrimWorkingSet));
             }
-            var (liked, uiaMode, repeatMode) = _uiaState;
+            var (liked, uiaMode, uiaRepeat) = _uiaState;
             // Depois de adicionar aos favoritos, ignorar "não gostado" antigo — o
             // texto do botão do Spotify pode demorar vários segundos a atualizar
             if (liked == false && DateTime.UtcNow - _likedOptimisticAt < TimeSpan.FromSeconds(8))
@@ -1280,28 +1277,46 @@ public partial class MainWindow : Window
                 AnimateLikePop();
             }
 
+            // Repetição: mapear modo do SMTC (fonte da verdade em tempo real, inclusive minimizado)
+            RepeatMode smtcRepeat = track.AutoRepeatMode switch
+            {
+                Windows.Media.MediaPlaybackAutoRepeatMode.None => RepeatMode.Off,
+                Windows.Media.MediaPlaybackAutoRepeatMode.List => RepeatMode.Context,
+                Windows.Media.MediaPlaybackAutoRepeatMode.Track => RepeatMode.Track,
+                _ => RepeatMode.Unknown
+            };
+
+            RepeatMode repeatMode = _currentRepeatMode;
+            if (DateTime.UtcNow - _repeatToggledAt > TimeSpan.FromMilliseconds(1500))
+            {
+                if (smtcRepeat != RepeatMode.Unknown)
+                    repeatMode = smtcRepeat;
+                else if (_uiaState.Repeat != RepeatMode.Unknown)
+                    repeatMode = _uiaState.Repeat;
+            }
+            _currentRepeatMode = repeatMode;
             ApplyRepeatVisual(repeatMode);
 
             LikeIcon.Data = liked == true ? CheckCircleGeo : AddCircleGeo;
             LikeIcon.Fill = liked == true ? SpotifyGreen : (liked == false ? Subdued : DimWhite);
-            // Honesto: com o Spotify minimizado não conseguimos confirmar o
-            // estado (null) — dizê-lo em vez de deixar o "+" parecer "não gostado"
-            LikeButton.ToolTip = liked == true ? L.TipLiked
-                               : liked == false ? L.TipLikeAdd
-                               : L.TipLikeUnknown;
 
-            ShuffleMode mode = uiaMode;
-            // A rede de segurança do SMTC atrasa-se vários segundos após um
-            // clique — sobrepor-se a uma leitura UIA fresca fazia o ícone
-            // piscar On→Off→On; janela de graça como no play/pause
-            if (DateTime.UtcNow - _shuffleToggledAt > TimeSpan.FromSeconds(4))
+            ShuffleMode mode = _currentShuffleMode;
+            if (DateTime.UtcNow - _shuffleToggledAt > TimeSpan.FromMilliseconds(1500))
             {
-                if (track.IsShuffle == false && mode != ShuffleMode.Unknown)
-                    mode = ShuffleMode.Off;
-                else if (track.IsShuffle == true && mode is ShuffleMode.Off or ShuffleMode.Unknown)
-                    mode = ShuffleMode.On;
+                if (Interop.IsSpotifyMinimized())
+                {
+                    if (track.IsShuffle.HasValue)
+                        mode = track.IsShuffle.Value ? ShuffleMode.On : ShuffleMode.Off;
+                }
+                else
+                {
+                    if (uiaMode != ShuffleMode.Unknown)
+                        mode = uiaMode;
+                    else if (track.IsShuffle.HasValue)
+                        mode = track.IsShuffle.Value ? ShuffleMode.On : ShuffleMode.Off;
+                }
             }
-
+            _currentShuffleMode = mode;
             ApplyShuffleVisual(mode);
 
             // Capa: só reler se mudou de faixa ou ainda não tinha sido carregada
@@ -1415,12 +1430,6 @@ public partial class MainWindow : Window
         ShuffleDot.Visibility = mode is ShuffleMode.On or ShuffleMode.Smart
             ? Visibility.Visible : Visibility.Collapsed;
         ShuffleSmartStar.Visibility = mode == ShuffleMode.Smart ? Visibility.Visible : Visibility.Collapsed;
-        ShuffleButton.ToolTip = mode switch
-        {
-            ShuffleMode.Smart => L.TipShuffleSmart,
-            ShuffleMode.On => L.TipShuffleOn,
-            _ => L.TipShuffle,
-        };
     }
 
     private void ApplyRepeatVisual(RepeatMode mode)
@@ -1464,6 +1473,7 @@ public partial class MainWindow : Window
         _isPlayingUi = !_isPlayingUi;
         _playToggledAt = DateTime.UtcNow;
         SetPlayPauseIcon(_isPlayingUi);
+        AnimateElementPop(PlayPauseButton, 1.15);
         if (!_isPlayingUi)
             _basePosition += DateTime.UtcNow - _basePositionAt; // congelar posição
         else
@@ -1487,49 +1497,72 @@ public partial class MainWindow : Window
 
     private async void Shuffle_Click(object sender, RoutedEventArgs e)
     {
-        // Feedback imediato: cicla localmente; a leitura de estado corrige se preciso
-        var next = _uiaState.Shuffle switch
+        AnimateElementPop(ShuffleButton, 1.25);
+        bool isMin = Interop.IsSpotifyMinimized();
+        if (isMin)
         {
-            ShuffleMode.Off => ShuffleMode.On,
-            ShuffleMode.On => ShuffleMode.Smart,
-            ShuffleMode.Smart => ShuffleMode.Off,
-            _ => ShuffleMode.Unknown,
-        };
-        if (next != ShuffleMode.Unknown)
-        {
-            _uiaState = (_uiaState.Liked, next, _uiaState.Repeat);
-            ApplyShuffleVisual(next);
-        }
-        _shuffleToggledAt = DateTime.UtcNow;
+            // Com o Spotify minimizado: UIA não processa cliques no Chromium. Usar o SMTC diretamente
+            bool target = _currentShuffleMode != ShuffleMode.On && _currentShuffleMode != ShuffleMode.Smart;
+            _currentShuffleMode = target ? ShuffleMode.On : ShuffleMode.Off;
+            ApplyShuffleVisual(_currentShuffleMode);
+            _shuffleToggledAt = DateTime.UtcNow;
 
-        bool ok = await Task.Run(() => _uia.CycleShuffle());
-        if (!ok)
-            await _media.ToggleShuffleAsync(); // sem janela do Spotify: só liga/desliga
-        await Task.Delay(400);
+            await _media.SetShuffleActiveAsync(target);
+        }
+        else
+        {
+            var next = _currentShuffleMode switch
+            {
+                ShuffleMode.Off => ShuffleMode.On,
+                ShuffleMode.On => ShuffleMode.Smart,
+                ShuffleMode.Smart => ShuffleMode.Off,
+                _ => ShuffleMode.On,
+            };
+            _currentShuffleMode = next;
+            ApplyShuffleVisual(next);
+            _shuffleToggledAt = DateTime.UtcNow;
+
+            bool ok = await Task.Run(() => _uia.CycleShuffle());
+            if (!ok)
+            {
+                bool target = next is ShuffleMode.On or ShuffleMode.Smart;
+                await _media.SetShuffleActiveAsync(target);
+            }
+        }
+
+        await Task.Delay(200);
         _uiaDirty = true;
         await RefreshTrackAsync();
     }
 
     private async void Repeat_Click(object sender, RoutedEventArgs e)
     {
-        // Feedback imediato: cicla localmente; a leitura de estado corrige se preciso
-        var next = _uiaState.Repeat switch
+        AnimateElementPop(RepeatButton, 1.25);
+        var next = _currentRepeatMode switch
         {
             RepeatMode.Off => RepeatMode.Context,
             RepeatMode.Context => RepeatMode.Track,
             RepeatMode.Track => RepeatMode.Off,
-            _ => RepeatMode.Unknown,
+            _ => RepeatMode.Context,
         };
-        if (next != RepeatMode.Unknown)
-        {
-            _uiaState = (_uiaState.Liked, _uiaState.Shuffle, next);
-            ApplyRepeatVisual(next);
-        }
 
-        bool ok = await Task.Run(() => _uia.CycleRepeat());
-        if (!ok)
-            await _media.CycleRepeatAsync(); // sem janela do Spotify: tentar via SMTC
-        await Task.Delay(400);
+        _currentRepeatMode = next;
+        ApplyRepeatVisual(next);
+        _repeatToggledAt = DateTime.UtcNow;
+
+        var targetSmtc = next switch
+        {
+            RepeatMode.Off => Windows.Media.MediaPlaybackAutoRepeatMode.None,
+            RepeatMode.Context => Windows.Media.MediaPlaybackAutoRepeatMode.List,
+            RepeatMode.Track => Windows.Media.MediaPlaybackAutoRepeatMode.Track,
+            _ => Windows.Media.MediaPlaybackAutoRepeatMode.None,
+        };
+
+        bool ok = await _media.SetRepeatModeAsync(targetSmtc);
+        if (!ok && !Interop.IsSpotifyMinimized())
+            await Task.Run(() => _uia.CycleRepeat());
+
+        await Task.Delay(200);
         _uiaDirty = true;
         await RefreshTrackAsync();
     }
@@ -1543,7 +1576,6 @@ public partial class MainWindow : Window
         _likedOptimisticAt = DateTime.UtcNow;
         LikeIcon.Data = CheckCircleGeo;
         LikeIcon.Fill = SpotifyGreen;
-        LikeButton.ToolTip = L.TipLiked;
         AnimateLikePop();
 
         bool ok = await Task.Run(() => _uia.AddToFavorites());
@@ -1614,7 +1646,9 @@ public partial class MainWindow : Window
         {
             // O recurso CoreAudio também fora da thread de UI — é uma RPC ao
             // serviço de áudio e chegava a bloquear a interface
-            double? current = await Task.Run(() => _uia.GetVolume() ?? SpotifyVolume.GetVolume());
+            double? current = await Task.Run(() => Interop.IsSpotifyMinimized()
+                ? (SpotifyVolume.GetVolume() ?? _uia.GetVolume())
+                : (_uia.GetVolume() ?? SpotifyVolume.GetVolume()));
             if (_closed || Visibility != Visibility.Visible)
                 return; // o widget escondeu-se durante a leitura: não abrir
                         // um popup órfão a flutuar sobre a barra
@@ -1657,7 +1691,7 @@ public partial class MainWindow : Window
                 _pendingVolume = null;
                 await Task.Run(() =>
                 {
-                    if (!_uia.SetVolume(v))
+                    if (Interop.IsSpotifyMinimized() || !_uia.SetVolume(v))
                         SpotifyVolume.SetVolume((float)v);
                 });
             }
@@ -1878,18 +1912,20 @@ public partial class MainWindow : Window
             ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
     }
 
-    private void AnimateLikePop()
+    private static void AnimateElementPop(FrameworkElement element, double peakScale = 1.3)
     {
         var scale = new ScaleTransform(1.0, 1.0);
-        LikeIcon.RenderTransformOrigin = new Point(0.5, 0.5);
-        LikeIcon.RenderTransform = scale;
+        element.RenderTransformOrigin = new Point(0.5, 0.5);
+        element.RenderTransform = scale;
         var anim = new DoubleAnimationUsingKeyFrames();
         anim.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.Zero)));
-        anim.KeyFrames.Add(new SplineDoubleKeyFrame(1.35, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(110)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
+        anim.KeyFrames.Add(new SplineDoubleKeyFrame(peakScale, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(110)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
         anim.KeyFrames.Add(new SplineDoubleKeyFrame(1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(240)), new KeySpline(0.1, 0.9, 0.2, 1.0)));
         scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
         scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
     }
+
+    private void AnimateLikePop() => AnimateElementPop(LikeIcon, 1.35);
 
     private void UpdateDynamicColor(byte[]? bytes)
     {

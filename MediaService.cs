@@ -4,6 +4,7 @@ using Windows.Storage.Streams;
 namespace SpotifyTaskbarWidget;
 
 public sealed record TrackInfo(string Title, string Artist, bool IsPlaying, bool? IsShuffle,
+    Windows.Media.MediaPlaybackAutoRepeatMode? AutoRepeatMode,
     TimeSpan Position, TimeSpan Duration, DateTime PositionAtUtc);
 
 /// <summary>
@@ -186,7 +187,7 @@ public sealed class MediaService
             DateTime positionAt = tl?.LastUpdatedTime.UtcDateTime ?? DateTime.UtcNow;
 
             return new TrackInfo(props?.Title ?? "", props?.Artist ?? "", playing, pi?.IsShuffleActive,
-                position, duration, positionAt);
+                pi?.AutoRepeatMode, position, duration, positionAt);
         }
         catch (Exception ex)
         {
@@ -245,6 +246,34 @@ public sealed class MediaService
         var s = _session;
         if (s == null) return;
         try { await s.TryChangePlaybackPositionAsync(position.Ticks); } catch { }
+    }
+
+    public async Task<bool> SetRepeatModeAsync(Windows.Media.MediaPlaybackAutoRepeatMode mode)
+    {
+        var s = _session;
+        if (s == null) return false;
+        try
+        {
+            return await s.TryChangeAutoRepeatModeAsync(mode);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> SetShuffleActiveAsync(bool active)
+    {
+        var s = _session;
+        if (s == null) return false;
+        try
+        {
+            return await s.TryChangeShuffleActiveAsync(active);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public async Task CycleRepeatAsync()

@@ -223,6 +223,9 @@ internal static class Interop
     [DllImport("user32.dll")]
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
     public static IntPtr GetSpotifyMainWindow()
     {
         IntPtr hwnd = IntPtr.Zero;
@@ -234,6 +237,13 @@ internal static class Interop
             p.Dispose();
         }
         return hwnd;
+    }
+
+    public static bool IsSpotifyMinimized()
+    {
+        IntPtr hwnd = GetSpotifyMainWindow();
+        if (hwnd == IntPtr.Zero) return true;
+        return IsIconic(hwnd) || !IsWindowVisible(hwnd);
     }
 
     [DllImport("user32.dll")]
