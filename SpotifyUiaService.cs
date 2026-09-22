@@ -577,8 +577,8 @@ public sealed class SpotifyUiaService
 
     /// <summary>
     /// Força uma atualização da árvore de acessibilidade do Spotify quando ele está minimizado
-    /// (o Chromium congela a UI nestas condições). Restaura a janela de forma invisível
-    /// (fora do ecrã) por breves instantes e minimiza de novo.
+    /// (o Chromium congela a UI nestas condições). Restaura a janela de forma 100% invisível
+    /// (WS_EX_LAYERED com Alpha=0 no fundo do z-order) por breves instantes e minimiza de novo.
     /// </summary>
     public void ForceUiaUpdate()
     {
@@ -591,14 +591,19 @@ public sealed class SpotifyUiaService
             if (!Interop.IsIconic(wnd)) return; // Só precisa se estiver minimizado
 
             IntPtr prevFg = Interop.GetForegroundWindow();
-            Interop.GetWindowRect(wnd, out var rect);
+            int originalExStyle = Interop.GetWindowLong(wnd, Interop.GWL_EXSTYLE);
             
             try
             {
-                // Mover para fora do ecrã antes de restaurar (SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE = 0x0001 | 0x0004 | 0x0010 = 0x0015)
-                Interop.SetWindowPos(wnd, IntPtr.Zero, -32000, -32000, 0, 0, 0x0015);
-                Interop.ShowWindow(wnd, 4); // SW_SHOWNOACTIVATE
-                Thread.Sleep(200); // Tempo para o Chromium renderizar
+                // Tàng hình 100%: set WS_EX_LAYERED với Alpha = 0 TRƯỚC KHI hiển thị
+                // để mắt người hoàn toàn không thấy bất kỳ điểm ảnh nào xuất hiện trên màn hình
+                Interop.SetWindowLong(wnd, Interop.GWL_EXSTYLE, originalExStyle | Interop.WS_EX_LAYERED);
+                Interop.SetLayeredWindowAttributes(wnd, 0, 0, Interop.LWA_ALPHA);
+
+                // Đặt ở đáy z-order (HWND_BOTTOM) và không kích hoạt focus (SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+                Interop.SetWindowPos(wnd, Interop.HWND_BOTTOM, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010);
+                Interop.ShowWindow(wnd, Interop.SW_SHOWNOACTIVATE);
+                Thread.Sleep(220); // Thời gian để Chromium vẽ và cập nhật cây UIA
                 
                 // Reconstruir árvore com a janela agora "visível"
                 Invalidate();
@@ -608,7 +613,8 @@ public sealed class SpotifyUiaService
             finally
             {
                 Interop.ShowWindow(wnd, Interop.SW_MINIMIZE);
-                Interop.SetWindowPos(wnd, IntPtr.Zero, rect.Left, rect.Top, 0, 0, 0x0015);
+                // Khôi phục lại exStyle nguyên bản để khi người dùng tự mở Spotify thì hoàn toàn bình thường
+                Interop.SetWindowLong(wnd, Interop.GWL_EXSTYLE, originalExStyle);
                 if (prevFg != IntPtr.Zero && Interop.GetForegroundWindow() != prevFg)
                     Interop.SetForegroundWindow(prevFg);
             }

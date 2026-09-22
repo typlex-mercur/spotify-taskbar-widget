@@ -5,7 +5,8 @@ namespace SpotifyTaskbarWidget;
 
 public sealed record TrackInfo(string Title, string Artist, bool IsPlaying, bool? IsShuffle,
     Windows.Media.MediaPlaybackAutoRepeatMode? AutoRepeatMode,
-    TimeSpan Position, TimeSpan Duration, DateTime PositionAtUtc);
+    TimeSpan Position, TimeSpan Duration, DateTime PositionAtUtc,
+    byte[]? ThumbnailBytes = null);
 
 /// <summary>
 /// Lê a música atual através da API de media do Windows (SMTC).
@@ -186,8 +187,25 @@ public sealed class MediaService
             TimeSpan duration = tl != null ? tl.EndTime - tl.StartTime : TimeSpan.Zero;
             DateTime positionAt = tl?.LastUpdatedTime.UtcDateTime ?? DateTime.UtcNow;
 
+            byte[]? thumbnail = null;
+            if (props?.Thumbnail != null)
+            {
+                try
+                {
+                    using var stream = await props.Thumbnail.OpenReadAsync();
+                    if (stream.Size > 0)
+                    {
+                        thumbnail = new byte[stream.Size];
+                        using var reader = new DataReader(stream.GetInputStreamAt(0));
+                        await reader.LoadAsync((uint)stream.Size);
+                        reader.ReadBytes(thumbnail);
+                    }
+                }
+                catch { }
+            }
+
             return new TrackInfo(props?.Title ?? "", props?.Artist ?? "", playing, pi?.IsShuffleActive,
-                pi?.AutoRepeatMode, position, duration, positionAt);
+                pi?.AutoRepeatMode, position, duration, positionAt, thumbnail);
         }
         catch (Exception ex)
         {

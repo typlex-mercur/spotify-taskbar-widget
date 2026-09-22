@@ -12,6 +12,13 @@ internal static class Interop
 
     public const int SW_RESTORE = 9;
     public const int SW_MINIMIZE = 6;
+    public const int SW_SHOWNOACTIVATE = 4;
+    public const int WS_EX_LAYERED = 0x00080000;
+    public const uint LWA_ALPHA = 0x00000002;
+    public static readonly IntPtr HWND_BOTTOM = new(1);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
     [DllImport("user32.dll")]
     public static extern bool IsIconic(IntPtr hWnd);

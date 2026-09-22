@@ -16,32 +16,43 @@ internal static class SpotifyActions
         if (spotify == IntPtr.Zero) return;
         IntPtr previous = Interop.GetForegroundWindow();
 
-        // Minimizada, a janela pode não processar o atalho — restaurar por instantes
         bool wasMinimized = Interop.IsIconic(spotify);
-        if (wasMinimized)
+        int originalExStyle = 0;
+        try
         {
-            Interop.ShowWindow(spotify, Interop.SW_RESTORE);
-            Thread.Sleep(250);
+            if (wasMinimized)
+            {
+                originalExStyle = Interop.GetWindowLong(spotify, Interop.GWL_EXSTYLE);
+                Interop.SetWindowLong(spotify, Interop.GWL_EXSTYLE, originalExStyle | Interop.WS_EX_LAYERED);
+                Interop.SetLayeredWindowAttributes(spotify, 0, 0, Interop.LWA_ALPHA);
+                Interop.ShowWindow(spotify, Interop.SW_RESTORE);
+                Thread.Sleep(200);
+            }
+
+            // "Toque" no Alt liberta a restrição do SetForegroundWindow
+            Interop.keybd_event(Interop.VK_MENU, 0, 0, UIntPtr.Zero);
+            Interop.keybd_event(Interop.VK_MENU, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Interop.SetForegroundWindow(spotify);
+            Thread.Sleep(150);
+
+            Interop.keybd_event(Interop.VK_MENU, 0, 0, UIntPtr.Zero);
+            Interop.keybd_event(Interop.VK_SHIFT, 0, 0, UIntPtr.Zero);
+            Interop.keybd_event(Interop.VK_B, 0, 0, UIntPtr.Zero);
+            Interop.keybd_event(Interop.VK_B, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Interop.keybd_event(Interop.VK_SHIFT, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Interop.keybd_event(Interop.VK_MENU, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            Thread.Sleep(200);
         }
-
-        // "Toque" no Alt liberta a restrição do SetForegroundWindow
-        Interop.keybd_event(Interop.VK_MENU, 0, 0, UIntPtr.Zero);
-        Interop.keybd_event(Interop.VK_MENU, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
-        Interop.SetForegroundWindow(spotify);
-        Thread.Sleep(150);
-
-        Interop.keybd_event(Interop.VK_MENU, 0, 0, UIntPtr.Zero);
-        Interop.keybd_event(Interop.VK_SHIFT, 0, 0, UIntPtr.Zero);
-        Interop.keybd_event(Interop.VK_B, 0, 0, UIntPtr.Zero);
-        Interop.keybd_event(Interop.VK_B, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
-        Interop.keybd_event(Interop.VK_SHIFT, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
-        Interop.keybd_event(Interop.VK_MENU, 0, Interop.KEYEVENTF_KEYUP, UIntPtr.Zero);
-        Thread.Sleep(200);
-
-        if (wasMinimized)
-            Interop.ShowWindow(spotify, Interop.SW_MINIMIZE);
-        if (previous != IntPtr.Zero)
-            Interop.SetForegroundWindow(previous);
+        finally
+        {
+            if (wasMinimized)
+            {
+                Interop.ShowWindow(spotify, Interop.SW_MINIMIZE);
+                Interop.SetWindowLong(spotify, Interop.GWL_EXSTYLE, originalExStyle);
+            }
+            if (previous != IntPtr.Zero && Interop.GetForegroundWindow() != previous)
+                Interop.SetForegroundWindow(previous);
+        }
     }
 
     public static void OpenSpotifyWindow()

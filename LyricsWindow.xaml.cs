@@ -64,6 +64,17 @@ public partial class LyricsWindow : Window
         {
             Interop.EnsureTopmost(_hwnd);
         }
+
+        ApplyTheme(MainWindow.IsEffectiveLightThemeStatic());
+    }
+
+    public void ApplyTheme(bool light)
+    {
+        var brush = light
+            ? new SolidColorBrush(Color.FromRgb(0x0F, 0x17, 0x2A))
+            : new SolidColorBrush(Color.FromRgb(0xF5, 0xF5, 0xF5));
+        LyricText.Foreground = brush;
+        LyricTextTop.Foreground = brush;
     }
 
     private double TargetOpacity => Math.Clamp(_settings.Opacity, 0.2, 1.0);

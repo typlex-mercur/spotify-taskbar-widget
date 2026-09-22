@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -36,6 +37,7 @@ public partial class MainWindow : Window
     private Brush Subdued = new SolidColorBrush(Color.FromRgb(0xB3, 0xB3, 0xB3));
     private Brush DimWhite = new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
     private Brush _progressFillNormal = Brushes.White;
+    private Brush _textPrimaryBrush = Brushes.White;
     private bool? _lightTheme;
 
     private readonly MediaService _media = new();
@@ -100,6 +102,7 @@ public partial class MainWindow : Window
     private string _lastTrackKey = "";
     private bool _artDirty = true;
     private bool _refreshing;
+    private bool _uiaRunning;
     private bool _volLoading;
     private bool _spotifyPresent = true;
     private DateTime _sessionLostAt = DateTime.MinValue;
@@ -200,7 +203,7 @@ public partial class MainWindow : Window
         if (msg == WM_SETTINGCHANGE || msg == WM_THEMECHANGED)
         {
             _lastThemeCheck = DateTime.MinValue;
-            ApplyThemeIfChanged();
+            ApplyThemeIfChanged(force: true);
         }
         return IntPtr.Zero;
     }
@@ -387,6 +390,7 @@ public partial class MainWindow : Window
     private void OnSettingsChanged()
     {
         ApplySettingsUi();
+        ApplyThemeIfChanged(force: true);
         // Reposicionar só DEPOIS do layout assentar: mudar tamanho/escala e
         // medir a janela no mesmo instante usava as dimensões antigas e o
         // widget aterrava desalinhado até ao tick seguinte
@@ -1245,17 +1249,34 @@ public partial class MainWindow : Window
                 TextStack.BeginAnimation(UIElement.OpacityProperty, fade);
             }
 
-            if (keyChanged || _uiaDirty || DateTime.UtcNow - _lastUiaStateAt > TimeSpan.FromSeconds(5))
+            // Capa e cor dinâmica: carregar IMEDIATAMENTE sem esperar pelo UIA
+            if (_artDirty || keyChanged)
             {
-                _uiaDirty = false;
-                var state = (Liked: (bool?)null, Shuffle: ShuffleMode.Unknown, Repeat: RepeatMode.Unknown, Fresh: false);
-                try { state = await Task.Run(() => _uia.GetState(track.Title)).WaitAsync(TimeSpan.FromSeconds(8)); }
-                catch (TimeoutException) { }
-                _lastStateFresh = state.Fresh;
-                // Grupo ainda da faixa anterior (zombie): não mostrar o tick antigo
-                _uiaState = (state.Fresh ? state.Liked : null, state.Shuffle, state.Repeat);
-                _lastUiaStateAt = DateTime.UtcNow;
+                _artDirty = false;
+                _lastTrackKey = key;
+                byte[]? bytes = track.ThumbnailBytes;
+                if (bytes == null && _media != null)
+                {
+                    try { bytes = await _media.GetThumbnailAsync().WaitAsync(TimeSpan.FromSeconds(2)); }
+                    catch { }
+                }
+                BitmapImage? art = null;
+                if (bytes != null)
+                {
+                    // Miniaturas truncadas/corrompidas acontecem em transições
+                    // de faixa — não podem rebentar o refresh inteiro
+                    try { art = ToBitmap(bytes); } catch { }
+                }
+                _lastArtBytes = bytes;
+                UpdateDynamicColor(bytes);
+                SetAlbumArt(art);
             }
+
+            // Libertar o gate ANTES do UIA pesado — assim uma nova mudança de
+            // faixa consegue entrar e atualizar título/capa de imediato sem
+            // ficar bloqueada à espera que o GetState() acabe (1-3 s a frio).
+            _refreshing = false;
+
             if (keyChanged || (_currentLyrics == null && !string.IsNullOrEmpty(track.Title)))
             {
                 _ = LoadLyricsForTrackAsync(track.Title, track.Artist, track.Duration);
@@ -1265,6 +1286,30 @@ public partial class MainWindow : Window
                 _ = SettleStateAsync(); // re-ler até o Spotify renderizar a barra da faixa nova
                 _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.InvokeAsync(Interop.TrimWorkingSet));
             }
+
+            // UIA: guard separado — se já houver uma chamada em curso, salta
+            // (o SettleStateAsync vai re-tentar em breve de qualquer forma)
+            if (!_uiaRunning && (keyChanged || _uiaDirty || DateTime.UtcNow - _lastUiaStateAt > TimeSpan.FromSeconds(5)))
+            {
+                _uiaDirty = false;
+                _uiaRunning = true;
+                try
+                {
+                    var state = (Liked: (bool?)null, Shuffle: ShuffleMode.Unknown, Repeat: RepeatMode.Unknown, Fresh: false);
+                    try { state = await Task.Run(() => _uia.GetState(track.Title)).WaitAsync(TimeSpan.FromSeconds(8)); }
+                    catch (TimeoutException) { }
+                    if (key != _lastTrackKey) return;
+                    _lastStateFresh = state.Fresh;
+                    // Grupo ainda da faixa anterior (zombie): não mostrar o tick antigo
+                    _uiaState = (state.Fresh ? state.Liked : null, state.Shuffle, state.Repeat);
+                    _lastUiaStateAt = DateTime.UtcNow;
+                }
+                finally
+                {
+                    _uiaRunning = false;
+                }
+            }
+
             var (liked, uiaMode, uiaRepeat) = _uiaState;
             // Depois de adicionar aos favoritos, ignorar "não gostado" antigo — o
             // texto do botão do Spotify pode demorar vários segundos a atualizar
@@ -1318,26 +1363,6 @@ public partial class MainWindow : Window
             }
             _currentShuffleMode = mode;
             ApplyShuffleVisual(mode);
-
-            // Capa: só reler se mudou de faixa ou ainda não tinha sido carregada
-            if (_artDirty || keyChanged)
-            {
-                _artDirty = false;
-                _lastTrackKey = key;
-                byte[]? bytes = null;
-                try { bytes = await _media.GetThumbnailAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
-                catch (TimeoutException) { }
-                BitmapImage? art = null;
-                if (bytes != null)
-                {
-                    // Miniaturas truncadas/corrompidas acontecem em transições
-                    // de faixa — não podem rebentar o refresh inteiro
-                    try { art = ToBitmap(bytes); } catch { }
-                }
-                _lastArtBytes = bytes;
-                UpdateDynamicColor(bytes);
-                SetAlbumArt(art);
-            }
         }
         finally
         {
@@ -1622,7 +1647,7 @@ public partial class MainWindow : Window
             if (_lastStateFresh) return;
 
             // Workaround para o Spotify minimizado (o Chromium congela a árvore de acessibilidade)
-            if (i == 1 && await Task.Run(() => _uia.IsMinimized()))
+            if ((i == 1 || (i == 3 && !_lastStateFresh)) && await Task.Run(() => _uia.IsMinimized()))
             {
                 await Task.Run(() => _uia.ForceUiaUpdate());
                 _uiaDirty = true;
@@ -1736,13 +1761,18 @@ public partial class MainWindow : Window
 
     // ---------- Tema (barra clara/escura) ----------
 
-    private static bool IsSystemLightTheme()
+    public static bool IsSystemLightTheme()
     {
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(
                 @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return key?.GetValue("SystemUsesLightTheme") is int v && v == 1;
+            if (key == null) return false;
+            object? sys = key.GetValue("SystemUsesLightTheme");
+            if (sys is int v) return v == 1;
+            object? apps = key.GetValue("AppsUseLightTheme");
+            if (apps is int va) return va == 1;
+            return false;
         }
         catch
         {
@@ -1750,36 +1780,102 @@ public partial class MainWindow : Window
         }
     }
 
+    public static bool IsEffectiveLightThemeStatic() => IsSystemLightTheme();
+
+    private bool IsEffectiveLightTheme() => IsEffectiveLightThemeStatic();
+
     private DateTime _lastThemeCheck = DateTime.MinValue;
 
     /// <summary>A barra de tarefas segue o tema do SISTEMA (não o das apps);
     /// numa barra clara os textos/ícones têm de escurecer.</summary>
-    private void ApplyThemeIfChanged()
+    private void ApplyThemeIfChanged(bool force = false)
     {
-        if ((DateTime.UtcNow - _lastThemeCheck).TotalSeconds < 10) return;
+        if (!force && (DateTime.UtcNow - _lastThemeCheck).TotalSeconds < 2) return;
         _lastThemeCheck = DateTime.UtcNow;
 
-        bool light = IsSystemLightTheme();
-        if (_lightTheme == light) return;
+        bool light = IsEffectiveLightTheme();
+        if (!force && _lightTheme == light) return;
         _lightTheme = light;
 
-        Subdued = new SolidColorBrush(light ? Color.FromRgb(0x48, 0x48, 0x48) : Color.FromRgb(0xB3, 0xB3, 0xB3));
-        DimWhite = new SolidColorBrush(light ? Color.FromArgb(0x66, 0x00, 0x00, 0x00) : Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
-        _progressFillNormal = light ? Brushes.Black : Brushes.White;
+        _textPrimaryBrush = light ? new SolidColorBrush(Color.FromRgb(0x0F, 0x17, 0x2A)) : Brushes.White;
+        Subdued = new SolidColorBrush(light ? Color.FromRgb(0x47, 0x55, 0x69) : Color.FromRgb(0xB3, 0xB3, 0xB3));
+        DimWhite = new SolidColorBrush(light ? Color.FromArgb(0x70, 0x47, 0x55, 0x69) : Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF));
+        _progressFillNormal = _textPrimaryBrush;
 
-        TitleText.Foreground = light ? Brushes.Black : Brushes.White;
+        TitleText.Foreground = _textPrimaryBrush;
         ArtistText.Foreground = Subdued;
         LauncherText.Foreground = Subdued;
-        PrevIcon.Fill = Subdued;
-        NextIcon.Fill = Subdued;
         VolumeIcon.Fill = Subdued;
         ArtPlaceholder.Foreground = DimWhite;
-        ProgressTrack.Background = new SolidColorBrush(light ? Color.FromArgb(0x2E, 0x00, 0x00, 0x00) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+
+        // Nền hoàn toàn phẳng và trong suốt (100% giống Dark Mode)
+        Root.Background = new SolidColorBrush(Color.FromArgb(0x01, 0, 0, 0));
+        Root.BorderThickness = new Thickness(0);
+        Root.BorderBrush = Brushes.Transparent;
+        ProgressTrack.Background = new SolidColorBrush(light ? Color.FromArgb(0x28, 0x00, 0x00, 0x00) : Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF));
+
+        if (light)
+        {
+            // Các nút Prev, Next: Slate-700 (#334155) sắc nét, hòa hợp hoàn hảo với taskbar sáng, không bị chìm
+            var controlBrush = new SolidColorBrush(Color.FromRgb(0x33, 0x41, 0x55));
+            PrevIcon.Fill = controlBrush;
+            NextIcon.Fill = controlBrush;
+
+            // Nút Play/Pause: Nút tròn trắng tinh tế (#FFFFFF) nổi nhẹ trên nền taskbar với viền mảnh 1px và bóng đổ mềm
+            PlayPauseButton.Background = Brushes.White;
+            PlayPauseButton.BorderBrush = new SolidColorBrush(Color.FromArgb(0x2A, 0x00, 0x00, 0x00));
+            PlayPauseButton.BorderThickness = new Thickness(1);
+            PlayPauseButton.Effect = new DropShadowEffect
+            {
+                BlurRadius = 4,
+                ShadowDepth = 1,
+                Direction = 270,
+                Opacity = 0.12,
+                Color = Colors.Black
+            };
+            PlayPauseIcon.Fill = new SolidColorBrush(Color.FromRgb(0x1E, 0x29, 0x3B));
+        }
+        else
+        {
+            PrevIcon.Fill = Subdued;
+            NextIcon.Fill = Subdued;
+
+            PlayPauseButton.Background = Brushes.White;
+            PlayPauseButton.BorderBrush = Brushes.Transparent;
+            PlayPauseButton.BorderThickness = new Thickness(0);
+            PlayPauseButton.Effect = null;
+            PlayPauseIcon.Fill = Brushes.Black;
+        }
+
         UpdateProgressFillColor();
 
-        // Botão play: círculo branco no escuro, preto no claro (como o Spotify)
-        PlayPauseButton.Background = light ? Brushes.Black : Brushes.White;
-        PlayPauseIcon.Fill = light ? Brushes.White : Brushes.Black;
+        // Ícones com estado
+        ApplyShuffleVisual(_currentShuffleMode);
+        ApplyRepeatVisual(_currentRepeatMode);
+        LikeIcon.Fill = _liked == true ? SpotifyGreen : (_liked == false ? Subdued : DimWhite);
+
+        // Lời bài hát & tiêu đề gộp
+        SetUnifiedInfoText(_lastUnifiedTitle, _lastUnifiedArtist);
+        UnifiedLyricText.Foreground = _textPrimaryBrush;
+        UnifiedLyricTextTop.Foreground = _textPrimaryBrush;
+
+        // Cập nhật tài nguyên dynamic
+        Resources["MenuBgBrush"] = new SolidColorBrush(light ? Color.FromRgb(0xFA, 0xFA, 0xFA) : Color.FromRgb(0x2C, 0x2C, 0x2C));
+        Resources["MenuBorderBrush"] = new SolidColorBrush(light ? Color.FromArgb(0x35, 0x00, 0x00, 0x00) : Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF));
+        Resources["MenuTextBrush"] = new SolidColorBrush(light ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Color.FromRgb(0xED, 0xED, 0xED));
+        Resources["MenuHoverBgBrush"] = new SolidColorBrush(light ? Color.FromArgb(0x18, 0x00, 0x00, 0x00) : Color.FromRgb(0x38, 0x38, 0x38));
+        Resources["MenuSeparatorBrush"] = new SolidColorBrush(light ? Color.FromArgb(0x20, 0x00, 0x00, 0x00) : Color.FromRgb(0x3F, 0x3F, 0x3F));
+        Resources["MenuCheckStrokeBrush"] = new SolidColorBrush(light ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Colors.White);
+        Resources["MenuArrowStrokeBrush"] = new SolidColorBrush(light ? Color.FromRgb(0x5A, 0x5A, 0x5A) : Color.FromRgb(0xB3, 0xB3, 0xB3));
+        Resources["VolumeBgBrush"] = new SolidColorBrush(light ? Colors.White : Color.FromRgb(0x28, 0x28, 0x28));
+        Resources["VolumeBorderBrush"] = new SolidColorBrush(light ? Color.FromArgb(0x28, 0x00, 0x00, 0x00) : Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF));
+        Resources["VolumeIconBrush"] = new SolidColorBrush(light ? Color.FromRgb(0x5A, 0x5A, 0x5A) : Color.FromRgb(0xB3, 0xB3, 0xB3));
+        Resources["VolumeSliderTrackBrush"] = new SolidColorBrush(light ? Color.FromRgb(0xD0, 0xD0, 0xD0) : Color.FromRgb(0x5E, 0x5E, 0x5E));
+        Resources["VolumeSliderThumbBrush"] = new SolidColorBrush(light ? Color.FromRgb(0x1A, 0x1A, 0x1A) : Colors.White);
+        Resources["ArtBorderBgBrush"] = new SolidColorBrush(light ? Color.FromArgb(0x18, 0x00, 0x00, 0x00) : Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF));
+
+        // Cửa sổ lyric rời
+        _lyricsWindow?.ApplyTheme(light);
 
         _marqueeKey = ""; // sem efeito no texto, mas força refresh coerente
         _ = RefreshTrackAsync();
@@ -1895,12 +1991,12 @@ public partial class MainWindow : Window
 
         if (!ProgressTrack.IsMouseOver)
         {
-            ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
+            UpdateProgressFillColor();
             var anim = new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(150))
             {
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
             };
-            ProgressThumb.BeginAnimation(UIElement.OpacityProperty, anim);
+            ProgressThumb?.BeginAnimation(UIElement.OpacityProperty, anim);
         }
 
         await _media.SeekAsync(_scrubTarget);
@@ -1926,6 +2022,7 @@ public partial class MainWindow : Window
         {
             Canvas.SetLeft(ProgressThumb, Math.Clamp(ProgressFill.Width - 3, 0, Math.Max(0, ProgressTrack.ActualWidth - 6)));
             ProgressThumb.Opacity = 1.0;
+            ProgressThumb.Fill = ProgressFill.Background;
         }
     }
 
@@ -1943,22 +2040,24 @@ public partial class MainWindow : Window
     private void Progress_MouseEnter(object sender, MouseEventArgs e)
     {
         ProgressFill.Background = _settings.DynamicAlbumColor ? _accentHoverBrush : SpotifyGreen;
+        if (ProgressThumb != null)
+            ProgressThumb.Fill = ProgressFill.Background;
         var anim = new DoubleAnimation(1.0, TimeSpan.FromMilliseconds(120))
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         };
-        ProgressThumb.BeginAnimation(UIElement.OpacityProperty, anim);
+        ProgressThumb?.BeginAnimation(UIElement.OpacityProperty, anim);
     }
 
     private void Progress_MouseLeave(object sender, MouseEventArgs e)
     {
         if (_isScrubbing) return;
-        ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
+        UpdateProgressFillColor();
         var anim = new DoubleAnimation(0.0, TimeSpan.FromMilliseconds(150))
         {
             EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
         };
-        ProgressThumb.BeginAnimation(UIElement.OpacityProperty, anim);
+        ProgressThumb?.BeginAnimation(UIElement.OpacityProperty, anim);
     }
 
     private void DynamicColor_Click(object sender, RoutedEventArgs e)
@@ -1979,6 +2078,9 @@ public partial class MainWindow : Window
             ProgressFill.Background = _settings.DynamicAlbumColor ? _accentHoverBrush : SpotifyGreen;
         else
             ProgressFill.Background = _settings.DynamicAlbumColor ? _accentBrush : _progressFillNormal;
+
+        if (ProgressThumb != null)
+            ProgressThumb.Fill = ProgressFill.Background;
     }
 
     private static void AnimateElementPop(FrameworkElement element, double peakScale = 1.08)
@@ -2498,33 +2600,40 @@ public partial class MainWindow : Window
     private void SetUnifiedInfoText(string title, string artist)
     {
         if (UnifiedInfoText == null) return;
+        _lastUnifiedTitle = title;
+        _lastUnifiedArtist = artist;
         UnifiedInfoText.Inlines.Clear();
+        bool light = _lightTheme == true;
+        var titleBrush = light ? _textPrimaryBrush : Brushes.White;
+        var artistBrush = light ? Subdued : ArtistDimBrush;
+        var dotBrush = light ? new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75)) : DotDimBrush;
+
         if (string.IsNullOrWhiteSpace(artist) || artist == L.NothingPlaying)
         {
             UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(title)
             {
-                Foreground = Brushes.White,
+                Foreground = titleBrush,
                 FontWeight = FontWeights.SemiBold
             });
         }
         else
         {
-            // Tên bài hát: màu trắng nổi bật
+            // Tên bài hát: màu nổi bật
             UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(title)
             {
-                Foreground = Brushes.White,
+                Foreground = titleBrush,
                 FontWeight = FontWeights.SemiBold
             });
             // Dấu chấm phân cách
             UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(" • ")
             {
-                Foreground = DotDimBrush,
+                Foreground = dotBrush,
                 FontWeight = FontWeights.Normal
             });
-            // Tên tác giả: màu xám dịu
+            // Tên tác giả: màu dịu
             UnifiedInfoText.Inlines.Add(new System.Windows.Documents.Run(artist)
             {
-                Foreground = ArtistDimBrush,
+                Foreground = artistBrush,
                 FontWeight = FontWeights.Normal
             });
         }

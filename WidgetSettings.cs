@@ -76,6 +76,9 @@ public class WidgetSettings
     /// <summary>Đổi màu thanh tiến trình và hiệu ứng theo bìa album (Dynamic palette).</summary>
     public bool DynamicAlbumColor { get; set; } = true;
 
+    /// <summary>Chế độ giao diện: "Auto" (theo Windows), "Dark" (Tối), "Light" (Sáng).</summary>
+    public string ThemeMode { get; set; } = "Auto";
+
     private static readonly object SaveLock = new();
 
     private static string Dir =>
@@ -104,6 +107,7 @@ public class WidgetSettings
             if (s.ManualXLeft is null) s.ManualXLeft = new Dictionary<int, double>();
             if (s.MarginsCenter is null) s.MarginsCenter = new Dictionary<int, SlotMargins>();
             if (s.MarginsLeft is null) s.MarginsLeft = new Dictionary<int, SlotMargins>();
+            if (string.IsNullOrWhiteSpace(s.ThemeMode)) s.ThemeMode = "Auto";
         }
         catch
         {

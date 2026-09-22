@@ -114,7 +114,10 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="bg" Background="{TemplateBinding Background}" CornerRadius="15"
+                        <Border x:Name="bg" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="15"
                                 Width="30" Height="30" RenderTransformOrigin="0.5,0.5">
                             <Border.RenderTransform>
                                 <ScaleTransform ScaleX="1.0" ScaleY="1.0"/>
@@ -188,18 +191,33 @@
             </Setter>
         </Style>
 
-        <!-- Menu de contexto estilo Spotify: escuro, arredondado, com sombra -->
+        <!-- Theming brushes (updated dynamically in ApplyThemeIfChanged) -->
+        <SolidColorBrush x:Key="MenuBgBrush" Color="#2C2C2C"/>
+        <SolidColorBrush x:Key="MenuBorderBrush" Color="#2EFFFFFF"/>
+        <SolidColorBrush x:Key="MenuTextBrush" Color="#EDEDED"/>
+        <SolidColorBrush x:Key="MenuHoverBgBrush" Color="#383838"/>
+        <SolidColorBrush x:Key="MenuSeparatorBrush" Color="#3F3F3F"/>
+        <SolidColorBrush x:Key="MenuCheckStrokeBrush" Color="White"/>
+        <SolidColorBrush x:Key="MenuArrowStrokeBrush" Color="#B3B3B3"/>
+        <SolidColorBrush x:Key="VolumeBgBrush" Color="#282828"/>
+        <SolidColorBrush x:Key="VolumeBorderBrush" Color="#2EFFFFFF"/>
+        <SolidColorBrush x:Key="VolumeIconBrush" Color="#B3B3B3"/>
+        <SolidColorBrush x:Key="VolumeSliderTrackBrush" Color="#5E5E5E"/>
+        <SolidColorBrush x:Key="VolumeSliderThumbBrush" Color="White"/>
+        <SolidColorBrush x:Key="ArtBorderBgBrush" Color="#22FFFFFF"/>
+
+        <!-- Menu de contexto estilo Spotify: adaptável claro/escuro, arredondado, com sombra -->
         <Style TargetType="ContextMenu">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Foreground" Value="#EDEDED"/>
+            <Setter Property="Foreground" Value="{DynamicResource MenuTextBrush}"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ContextMenu">
-                        <Border Margin="10" Background="#2C2C2C" CornerRadius="8" Padding="5"
-                                BorderBrush="#2EFFFFFF" BorderThickness="1">
+                        <Border Margin="10" Background="{DynamicResource MenuBgBrush}" CornerRadius="8" Padding="5"
+                                BorderBrush="{DynamicResource MenuBorderBrush}" BorderThickness="1">
                             <Border.Effect>
-                                <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.55"/>
+                                <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.45"/>
                             </Border.Effect>
                             <StackPanel IsItemsHost="True"
                                         KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -211,7 +229,7 @@
 
         <Style TargetType="MenuItem">
             <Setter Property="OverridesDefaultStyle" Value="True"/>
-            <Setter Property="Foreground" Value="#EDEDED"/>
+            <Setter Property="Foreground" Value="{DynamicResource MenuTextBrush}"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
@@ -223,24 +241,24 @@
                                     <ColumnDefinition Width="14"/>
                                 </Grid.ColumnDefinitions>
                                 <Path x:Name="check" Grid.Column="0" Data="M1.5,6 L5,9.5 L12,2"
-                                      Stroke="White" StrokeThickness="1.8" StrokeStartLineCap="Round"
+                                      Stroke="{DynamicResource MenuCheckStrokeBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round" StrokeLineJoin="Round"
                                       Width="13" Height="12" Stretch="Uniform"
                                       VerticalAlignment="Center" Visibility="Hidden"/>
                                 <ContentPresenter Grid.Column="1" ContentSource="Header"
                                                   VerticalAlignment="Center" RecognizesAccessKey="True"/>
                                 <Path x:Name="arrow" Grid.Column="2" Data="M1,1 L5,5 L1,9"
-                                      Stroke="#B3B3B3" StrokeThickness="1.6" StrokeStartLineCap="Round"
+                                      Stroke="{DynamicResource MenuArrowStrokeBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round"
                                       StrokeEndLineCap="Round"
                                       VerticalAlignment="Center" HorizontalAlignment="Right"
                                       Visibility="Collapsed"/>
                                 <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="-4"
                                        VerticalOffset="-8" IsOpen="{TemplateBinding IsSubmenuOpen}"
                                        AllowsTransparency="True" Focusable="False" PopupAnimation="Fade">
-                                    <Border Margin="10" Background="#2C2C2C" CornerRadius="8" Padding="5"
-                                            BorderBrush="#2EFFFFFF" BorderThickness="1">
+                                    <Border Margin="10" Background="{DynamicResource MenuBgBrush}" CornerRadius="8" Padding="5"
+                                            BorderBrush="{DynamicResource MenuBorderBrush}" BorderThickness="1">
                                         <Border.Effect>
-                                            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.55"/>
+                                            <DropShadowEffect BlurRadius="18" ShadowDepth="3" Opacity="0.45"/>
                                         </Border.Effect>
                                         <StackPanel IsItemsHost="True"
                                                     KeyboardNavigation.DirectionalNavigation="Cycle"/>
@@ -250,10 +268,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="bg" Property="Background" Value="#383838"/>
+                                <Setter TargetName="bg" Property="Background" Value="{DynamicResource MenuHoverBgBrush}"/>
                             </Trigger>
                             <Trigger Property="IsSubmenuOpen" Value="True">
-                                <Setter TargetName="bg" Property="Background" Value="#383838"/>
+                                <Setter TargetName="bg" Property="Background" Value="{DynamicResource MenuHoverBgBrush}"/>
                             </Trigger>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="check" Property="Visibility" Value="Visible"/>
@@ -275,13 +293,13 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Separator">
-                        <Rectangle Height="1" Fill="#3F3F3F" Margin="6,4"/>
+                        <Rectangle Height="1" Fill="{DynamicResource MenuSeparatorBrush}" Margin="6,4"/>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
 
-        <!-- Slider estilo Spotify: pista fina, preenchimento verde, bolinha branca -->
+        <!-- Slider estilo Spotify: pista fina, preenchimento verde, bolinha adaptável -->
         <Style x:Key="SpotifySlider" TargetType="Slider">
             <Setter Property="Height" Value="16"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -290,7 +308,7 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Slider">
                         <Grid VerticalAlignment="Center">
-                            <Border Height="4" CornerRadius="2" Background="#5E5E5E"/>
+                            <Border Height="4" CornerRadius="2" Background="{DynamicResource VolumeSliderTrackBrush}"/>
                             <Track x:Name="PART_Track">
                                 <Track.DecreaseRepeatButton>
                                     <RepeatButton IsTabStop="False" Focusable="False" Command="Slider.DecreaseLarge">
@@ -314,7 +332,7 @@
                                     <Thumb Width="12" Height="12" Focusable="False">
                                         <Thumb.Template>
                                             <ControlTemplate TargetType="Thumb">
-                                                <Ellipse Fill="White" Width="12" Height="12"/>
+                                                <Ellipse Fill="{DynamicResource VolumeSliderThumbBrush}" Width="12" Height="12"/>
                                             </ControlTemplate>
                                         </Thumb.Template>
                                     </Thumb>
@@ -328,7 +346,7 @@
     </Window.Resources>
 
     <!-- Fundo quase transparente (#01000000) para o rato ser detetado (menu/mover) -->
-    <Border x:Name="Root" Background="#01000000" CornerRadius="8" Padding="8,2,8,0" Cursor="Hand"
+    <Border x:Name="Root" Background="#01000000" BorderThickness="0" CornerRadius="8" Padding="8,2,8,2" Cursor="Hand"
             MouseLeftButtonDown="Root_MouseLeftButtonDown"
             MouseMove="Root_MouseMove"
             MouseLeftButtonUp="Root_MouseLeftButtonUp"
@@ -361,7 +379,6 @@
                     <MenuItem x:Name="BtnVolumeMenu" Header="Volume" IsCheckable="True" Click="Buttons_Click"/>
                 </MenuItem>
                 <MenuItem x:Name="ProgressMenu" Header="Progress bar" IsCheckable="True" Click="Progress_MenuClick"/>
-                <Separator/>
                 <MenuItem x:Name="DynamicColorMenu" Header="Dynamic album color" IsCheckable="True" Click="DynamicColor_Click"/>
                 <Separator/>
                 <MenuItem x:Name="AutoStartMenu" Header="Start with Windows" IsCheckable="True" Click="AutoStart_Click"/>
@@ -388,7 +405,7 @@
             <StackPanel x:Name="ContentPanel" Grid.Row="0" Orientation="Horizontal" VerticalAlignment="Center">
 
                 <!-- Capa do álbum -->
-                <Border Width="34" Height="34" CornerRadius="4" Background="#22FFFFFF" VerticalAlignment="Center">
+                <Border x:Name="ArtBorder" Width="34" Height="34" CornerRadius="4" Background="{DynamicResource ArtBorderBgBrush}" VerticalAlignment="Center">
                     <Grid>
                         <TextBlock x:Name="ArtPlaceholder" Text="&#xE93C;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
                                    FontSize="14" Foreground="#88FFFFFF"
@@ -563,10 +580,12 @@
             <Popup x:Name="VolumePopup" PlacementTarget="{Binding ElementName=VolumeButton}"
                    Placement="Top" AllowsTransparency="True" PopupAnimation="Fade" StaysOpen="True"
                    Closed="VolumePopup_Closed">
-                <Border x:Name="VolumePopupBorder" Background="#282828" CornerRadius="6" Padding="12,10" Margin="6"
+                <Border x:Name="VolumePopupBorder" Background="{DynamicResource VolumeBgBrush}"
+                        BorderBrush="{DynamicResource VolumeBorderBrush}" BorderThickness="1"
+                        CornerRadius="6" Padding="12,10" Margin="6"
                         MouseLeave="VolumePopup_MouseLeave" MouseWheel="Volume_MouseWheel">
                     <StackPanel Orientation="Horizontal">
-                        <Path Width="13" Height="13" Stretch="Uniform" Fill="#B3B3B3"
+                        <Path Width="13" Height="13" Stretch="Uniform" Fill="{DynamicResource VolumeIconBrush}"
                               Margin="0,0,10,0" VerticalAlignment="Center"
                               Data="M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.642 3.642 0 0 1-1.33-4.967 3.639 3.639 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.139 2.139 0 0 0 0 3.7l5.8 3.35V2.8l-5.8 3.35zm8.683 4.29V5.56a2.75 2.75 0 0 1 0 4.88z M11.5 13.614a5.752 5.752 0 0 0 0-11.228v1.55a4.252 4.252 0 0 1 0 8.127v1.55z"/>
                         <Slider x:Name="VolumeSlider" Style="{StaticResource SpotifySlider}" Width="100"
