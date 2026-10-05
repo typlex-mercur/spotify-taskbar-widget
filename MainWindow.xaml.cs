@@ -2453,7 +2453,7 @@ public partial class MainWindow : Window
     /// Bù trừ thời gian animation chuyển dòng (240ms) và độ trễ phản xạ tự nhiên
     /// của các file LRC cộng đồng, giúp câu hát hiện rõ nét 100% đúng thời điểm ca sĩ cất giọng.
     /// </summary>
-    private static readonly TimeSpan LyricLeadIn = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan LyricLeadIn = TimeSpan.Zero;
 
     private TimeSpan GetCurrentLyricPosition()
     {
